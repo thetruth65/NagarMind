@@ -1,0 +1,32 @@
+{
+  "name": "NagarMind — Civic Intelligence",
+  "short_name": "NagarMind",
+  "description": "Report and track civic issues in your ward — MCD Delhi",
+  "start_url": "/citizen/auth",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#1e40af",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "categories": ["utilities", "government"],
+  "lang": "en-IN",
+  "shortcuts": [
+    {
+      "name": "Report Issue",
+      "short_name": "Report",
+      "description": "Submit a new complaint",
+      "url": "/citizen/submit",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "My Complaints",
+      "short_name": "Track",
+      "description": "Track your complaints",
+      "url": "/citizen/complaints",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

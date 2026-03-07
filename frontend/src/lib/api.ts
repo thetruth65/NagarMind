@@ -1,0 +1,217 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// NagarMind — API Client
+// src/lib/api.ts
+// ─────────────────────────────────────────────────────────────────────────────
+
+import axios from 'axios'
+
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
+export const api = axios.create({
+  baseURL: BASE_URL,
+  headers: { 'Content-Type': 'application/json' },
+})
+
+// ── Auth token interceptor ────────────────────────────────────────────────────
+api.interceptors.request.use((config) => {
+  // Read token from Zustand's persisted storage
+  const authData = localStorage.getItem('nagarmind-auth')
+  if (authData) {
+    try {
+      const { state } = JSON.parse(authData)
+      if (state.token) {
+        config.headers.Authorization = `Bearer ${state.token}`
+      }
+    } catch (e) {
+      console.error("Failed to parse auth token", e)
+    }
+  }
+  return config
+})
+
+// ── 401 handler — redirect by role ───────────────────────────────────────────
+api.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    if (err.response?.status === 401) {
+      // ✅ FIX: Do NOT redirect if the user is actively trying to log in!
+      if (err.config?.url?.includes('/login')) {
+        return Promise.reject(err)
+      }
+
+      let role = 'citizen'
+      const authData = localStorage.getItem('nagarmind-auth')
+      if (authData) {
+        try {
+          const { state } = JSON.parse(authData)
+          role = state.role || 'citizen'
+        } catch (e) {}
+      }
+      
+      localStorage.removeItem('nagarmind-auth')
+      
+      if (role === 'admin')        window.location.href = '/admin'
+      else if (role === 'officer') window.location.href = '/officer/auth'
+      else                         window.location.href = '/citizen/auth'
+    }
+    return Promise.reject(err)
+  }
+)
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+export const authAPI = {
+  sendOTP:         (phone: string, role: string, language = 'en') =>
+    api.post('/api/auth/send-otp', { phone, role, language }),
+  verifyOTP:       (phone: string, otp: string, role: string) =>
+    api.post('/api/auth/verify-otp', { phone, otp, role }),
+  resendOTP:       (phone: string, role: string, language: string) =>
+    api.post('/api/auth/resend-otp', { phone, role, language }),
+  checkCitizen:    (phone: string) =>
+    api.get('/api/auth/citizen/check', { params: { phone } }),
+  registerCitizen: (data: object, tempToken: string) =>
+    api.post('/api/auth/register/citizen', data, {
+      headers: { Authorization: `Bearer ${tempToken}` },
+    }),
+  registerOfficer: (data: object, tempToken?: string) =>
+    // tempToken is optional for self-registration (admin pre-creates officers)
+    api.post('/api/auth/register/officer', data,
+      tempToken ? { headers: { Authorization: `Bearer ${tempToken}` } } : undefined
+    ),
+  officerLogin:    (employee_id: string, password: string) =>
+    api.post('/api/auth/officer/login', null, { params: { employee_id, password } }),
+  adminLogin:      (employee_id: string, password: string) =>
+    api.post('/api/auth/admin/login', { employee_id, password }),
+  getMe:           () => api.get('/api/auth/me'),
+}
+
+// ── Wards ─────────────────────────────────────────────────────────────────────
+export const wardsAPI = {
+  list:      () => api.get('/api/wards/'),
+  get:       (id: number) => api.get(`/api/wards/${id}`),
+  healthAll: () => api.get('/api/wards/health/all'),
+  getDigest: (id: string) => api.get(`/api/wards/digest/${id}`),
+  // ✅ NEW: Fetch history for charts
+  getDigestHistory: (type: string, entityId?: string) => 
+    api.get('/api/wards/digests/history', { params: { type, entity_id: entityId } }),
+}
+// ── Translation ───────────────────────────────────────────────────────────────
+export const translateAPI = {
+  batch:  (texts: string[], target_language: string, source_language = 'en-IN') =>
+    api.post('/api/translate/batch', { texts, target_language, source_language }),
+  single: (text: string, target_language: string, source_language = 'en-IN') =>
+    api.post('/api/translate/single', { text, target_language, source_language }),
+}
+
+// ── Upload ────────────────────────────────────────────────────────────────────
+export const uploadAPI = {
+  presign: (filename: string, content_type: string, folder = 'complaints') =>
+    api.post('/api/upload/presign', { filename, content_type, folder }),
+  directUpload: (uploadUrl: string, file: File) =>
+    axios.put(uploadUrl, file, { headers: { 'Content-Type': file.type } }),
+}
+
+// ── Complaints ────────────────────────────────────────────────────────────────
+export const complaintsAPI = {
+  // Citizen
+  submit:          (data: object)         => api.post('/api/complaints/', data),
+  track:           (id: string)           => api.get(`/api/complaints/track/${id}`),
+  mine:            (params?: object)      => api.get('/api/complaints/mine', { params }),
+  rate:            (id: string, data: object) => api.post(`/api/complaints/${id}/rate`, data),
+  dispute:         (id: string, data: object) => api.post(`/api/complaints/${id}/dispute`, data),
+
+  // Officer
+  updateStatus:    (id: string, data: object) => api.patch(`/api/complaints/${id}/status`, data),
+  officerInbox:    (params?: object)      => api.get('/api/complaints/officer/inbox', { params }),
+  // `inbox` alias so OfficerDashboardPage & OfficerInboxPage compile without changes
+  inbox:           (params?: object)      => api.get('/api/complaints/officer/inbox', { params }),
+  officerDetail:   (id: string)           => api.get(`/api/complaints/officer/${id}`),
+
+  // Voice
+  transcribeUrl:   (audio_url: string, language_hint?: string) =>
+    api.post('/api/complaints/transcribe-url', null, { params: { audio_url, language_hint } }),
+
+  // Notifications
+  myNotifications: () => api.get('/api/complaints/notifications/mine'),
+  markAllRead:     () => api.post('/api/complaints/notifications/read-all'),
+
+  // Convenience: presign + upload
+  customUpload: (filename: string, content_type: string, blob: Blob) =>
+    uploadAPI
+      .presign(filename, content_type, 'complaints')
+      .then(res =>
+        uploadAPI
+          .directUpload(res.data.upload_url, new File([blob], filename, { type: content_type }))
+          .then(() => res)
+      ),
+}
+
+// ── Officer ───────────────────────────────────────────────────────────────────
+export const officerAPI = {
+  performance:    () => api.get('/api/officer/me/performance'),
+  updateLocation: (lat: number, lng: number) =>
+    api.patch('/api/officer/me/location', null, { params: { lat, lng } }),
+  wardComplaints: () => api.get('/api/officer/ward/complaints'),
+  leaderboard:    () => api.get('/api/officer/leaderboard'),
+}
+
+// ── Citizen ───────────────────────────────────────────────────────────────────
+export const citizenAPI = {
+  profile:    () => api.get('/api/citizen/profile'),
+  update:     (data: object) => api.patch('/api/citizen/profile', data),
+  stats:      () => api.get('/api/citizen/stats'),
+  // wardDigest accepts an optional wardId param — used by CitizenDigestPage & OfficerDigestPage
+  wardDigest: (wardId?: number) =>
+    api.get('/api/citizen/ward-digest', wardId ? { params: { ward_id: wardId } } : undefined),
+}
+
+// alias so old imports of citizenProfileAPI still compile
+export const citizenProfileAPI = citizenAPI
+
+// ── Admin ─────────────────────────────────────────────────────────────────────
+export const adminAPI = {
+  overview:          () => api.get('/api/admin/overview'),
+  heatmap:           () => api.get('/api/admin/wards/heatmap'),
+  wardDrilldown:     (id: number) => api.get(`/api/admin/wards/${id}`),
+
+  alerts:            () => api.get('/api/admin/alerts'),
+  resolveAlert:      (id: string) => api.post(`/api/admin/alerts/${id}/resolve`),
+  scanAlerts:        () => api.post('/api/admin/alerts/scan'),
+
+  officers:          () => api.get('/api/admin/officers'),
+
+  digests:           () => api.get('/api/admin/digests'),
+  digestById:        (id: string) => api.get(`/api/admin/digests/${id}`),
+  getDigest:         (wardId: number, weekStart: string) =>
+    api.get(`/api/admin/digests/${wardId}/${weekStart}`),
+  triggerDigest:     () => api.post('/api/admin/digests/trigger'),
+
+  recalculateHealth: () => api.post('/api/admin/health/recalculate'),
+}
+
+// ── Analytics ─────────────────────────────────────────────────────────────────
+export const analyticsAPI = {
+  // Primary method names
+  trends:             (days: number) =>
+    api.get('/api/analytics/city/trends', { params: { days } }),
+  categoryBreakdown:  (days: number) =>
+    api.get('/api/analytics/city/category-breakdown', { params: { days } }),
+  zoneComparison:     () => api.get('/api/analytics/zones/comparison'),
+  officerLeaderboard: (limit = 10) =>
+    api.get('/api/analytics/officers/leaderboard-full', { params: { limit } }),
+  worstWards:         (limit = 10) =>
+    api.get('/api/analytics/wards/worst', { params: { limit } }),
+  bestWards:          (limit = 10) =>
+    api.get('/api/analytics/wards/best', { params: { limit } }),
+  summaryCard:        () => api.get('/api/analytics/city/summary-card'),
+  exportComplaints:   (days: number) =>
+    api.get('/api/analytics/export/complaints-csv', {
+      params: { days },
+      responseType: 'blob',
+    }),
+
+  // Aliases used in AdminDashboardPage & AdminAnalyticsPage
+  cityTrends:        (days: number) =>
+    api.get('/api/analytics/city/trends', { params: { days } }),
+  officersFull:      () =>
+    api.get('/api/analytics/officers/leaderboard-full'),
+}

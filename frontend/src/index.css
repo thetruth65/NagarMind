@@ -1,0 +1,242 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Google Fonts are loaded in index.html ── */
+
+@layer base {
+  :root {
+    --color-bg:        #f8fafc;
+    --color-surface:   #ffffff;
+    --color-border:    #e2e8f0;
+    --color-text:      #0f172a;
+    --color-muted:     #64748b;
+    --color-primary:   #2563eb;
+    --color-accent:    #16a34a;
+    scroll-behavior: smooth;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    font-family: 'DM Sans', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-slate-50 text-slate-900;
+    min-height: 100dvh;
+  }
+
+  #root {
+    min-height: 100dvh;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { @apply bg-slate-300 rounded-full; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-slate-400; }
+
+  /* Selection */
+  ::selection { @apply bg-primary-100 text-primary-900; }
+}
+
+@layer components {
+  /* ── Cards ── */
+  .card {
+    @apply bg-white rounded-2xl border border-slate-100 shadow-card;
+  }
+  .card-hover {
+    @apply hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200;
+  }
+
+  /* ── Buttons ── */
+  .btn-primary {
+    @apply bg-primary-600 hover:bg-primary-700 active:bg-primary-800
+           text-white font-semibold rounded-2xl px-6 py-3
+           transition-all duration-150 shadow-sm hover:shadow-glow-blue
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none
+           font-body;
+  }
+  .btn-secondary {
+    @apply border-2 border-slate-200 hover:border-slate-300
+           text-slate-700 hover:text-slate-900 font-semibold rounded-2xl px-6 py-3
+           transition-all duration-150 bg-white hover:bg-slate-50
+           disabled:opacity-50 disabled:cursor-not-allowed
+           font-body;
+  }
+  .btn-ghost {
+    @apply text-slate-600 hover:text-slate-900 hover:bg-slate-100
+           rounded-xl px-4 py-2 transition-all duration-150
+           font-body font-medium;
+  }
+  .btn-danger {
+    @apply bg-red-600 hover:bg-red-700 text-white font-semibold rounded-2xl
+           px-6 py-3 transition-all duration-150 shadow-sm
+           disabled:opacity-50 font-body;
+  }
+
+  /* ── Inputs ── */
+  .input-field {
+    @apply w-full px-4 py-3.5 border-2 border-slate-200 rounded-2xl
+           text-slate-800 font-body bg-white outline-none
+           focus:border-primary-400 focus:ring-2 focus:ring-primary-100
+           placeholder:text-slate-400 transition-all duration-150
+           disabled:opacity-50 disabled:bg-slate-50;
+  }
+  .input-label {
+    @apply text-sm font-semibold text-slate-700 font-body block mb-1.5;
+  }
+
+  /* ── Status badges ── */
+  .badge {
+    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold font-body;
+  }
+  .badge-submitted    { @apply bg-slate-100 text-slate-700; }
+  .badge-assigned     { @apply bg-blue-100 text-blue-700; }
+  .badge-acknowledged { @apply bg-purple-100 text-purple-700; }
+  .badge-in_progress  { @apply bg-amber-100 text-amber-700; }
+  .badge-resolved     { @apply bg-green-100 text-green-700; }
+  .badge-closed       { @apply bg-slate-100 text-slate-500; }
+  .badge-disputed     { @apply bg-red-100 text-red-700; }
+
+  /* ── Urgency badges ── */
+  .urgency-critical { @apply bg-red-100 text-red-700 border border-red-200; }
+  .urgency-high     { @apply bg-orange-100 text-orange-700 border border-orange-200; }
+  .urgency-medium   { @apply bg-amber-100 text-amber-700 border border-amber-200; }
+  .urgency-low      { @apply bg-slate-100 text-slate-600 border border-slate-200; }
+
+  /* ── Gradient heading ── */
+  .gradient-text {
+    @apply bg-gradient-to-r from-primary-600 to-primary-400 bg-clip-text text-transparent;
+  }
+
+  /* ── Glass effect ── */
+  .glass {
+    @apply bg-white/80 backdrop-blur-xl border border-white/40;
+  }
+  .glass-dark {
+    @apply bg-slate-900/80 backdrop-blur-xl border border-slate-700/40;
+  }
+
+  /* ── Section headings ── */
+  .section-title {
+    @apply font-display font-bold text-slate-900;
+  }
+
+  /* ── Stat card ── */
+  .stat-card {
+    @apply card p-5 space-y-1;
+  }
+  .stat-value {
+    @apply font-display font-bold text-2xl text-slate-900;
+  }
+  .stat-label {
+    @apply text-sm text-slate-500 font-body;
+  }
+
+  /* ── SLA countdown ── */
+  .sla-ok      { @apply text-green-600; }
+  .sla-warning { @apply text-amber-600; }
+  .sla-breach  { @apply text-red-600; }
+
+  /* ── Nav active ── */
+  .nav-active {
+    @apply bg-primary-50 text-primary-700 border border-primary-100;
+  }
+  .nav-inactive {
+    @apply text-slate-500 hover:text-slate-800 hover:bg-slate-50;
+  }
+
+  /* ── Timeline ── */
+  .timeline-dot {
+    @apply w-9 h-9 rounded-xl flex items-center justify-center text-lg shrink-0;
+  }
+  .timeline-line {
+    @apply w-0.5 bg-slate-100 flex-1 mx-auto;
+  }
+
+  /* ── Page header ── */
+  .page-header {
+    @apply mb-6 flex items-center justify-between gap-4 flex-wrap;
+  }
+  .page-title {
+    @apply font-display font-bold text-2xl text-slate-900;
+  }
+}
+
+@layer utilities {
+  .text-balance { text-wrap: balance; }
+  .scrollbar-hide { scrollbar-width: none; }
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+
+  /* ── Gradient mesh backgrounds ── */
+  .bg-mesh-blue {
+    background: radial-gradient(ellipse at top left, #dbeafe 0%, transparent 60%),
+                radial-gradient(ellipse at bottom right, #e0e7ff 0%, transparent 60%),
+                #f8fafc;
+  }
+  .bg-mesh-green {
+    background: radial-gradient(ellipse at top right, #dcfce7 0%, transparent 60%),
+                radial-gradient(ellipse at bottom left, #d1fae5 0%, transparent 60%),
+                #f8fafc;
+  }
+  .bg-mesh-dark {
+    background: radial-gradient(ellipse at top left, #1e3a8a20 0%, transparent 60%),
+                radial-gradient(ellipse at bottom right, #1e40af15 0%, transparent 60%),
+                #080d17;
+  }
+
+  /* ── Animated gradient border ── */
+  .gradient-border {
+    position: relative;
+    background: linear-gradient(white, white) padding-box,
+                linear-gradient(135deg, #2563eb, #16a34a) border-box;
+    border: 2px solid transparent;
+  }
+
+  /* ── Noise texture overlay ── */
+  .noise::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    opacity: 0.03;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+    pointer-events: none;
+  }
+}
+
+/* ── Leaflet map overrides ── */
+.leaflet-container {
+  font-family: 'DM Sans', sans-serif !important;
+  border-radius: 1rem;
+}
+
+/* ── Toaster customization ── */
+.toast-success { @apply !bg-white !text-slate-800 !shadow-card !rounded-2xl !border !border-green-100; }
+.toast-error   { @apply !bg-white !text-slate-800 !shadow-card !rounded-2xl !border !border-red-100; }
+
+/* ── Framer Motion page transitions ── */
+.page-enter {
+  animation: slideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ── Admin dark theme overrides ── */
+.admin-theme {
+  @apply bg-slate-950 text-slate-100;
+}
+
+/* ── Custom Map Tooltip ── */
+.leaflet-tooltip-custom {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+.leaflet-tooltip-custom::before {
+  display: none !important; /* Removes the little triangle arrow */
+}
