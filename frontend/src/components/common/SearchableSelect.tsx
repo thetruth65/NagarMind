@@ -1,9 +1,4 @@
-/**
- * SearchableSelect + WardSelect
- * Smart dropdown with substring-match search.
- * Matches any part of the label string — not just prefix.
- * Used in CitizenAuthPage, OfficerAuthPage, SubmitComplaintPage.
- */
+// frontend/src/components/common/SearchableSelect.tsx
 import { useState, useRef, useEffect } from 'react'
 import { ChevronDown, Search, X } from 'lucide-react'
 
@@ -40,7 +35,7 @@ export function SearchableSelect({
   options, value, onChange, placeholder = 'Search...', label, disabled, className,
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false)
-  const [query, setQuery] = useState('')
+  const[query, setQuery] = useState('')
   const ref = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -73,7 +68,6 @@ export function SearchableSelect({
         <label className="text-sm font-medium text-gray-700 block">{label}</label>
       )}
       <div className="relative">
-        {/* Trigger */}
         <button
           type="button"
           disabled={disabled}
@@ -94,22 +88,20 @@ export function SearchableSelect({
           )}
           <div className="flex items-center gap-1 shrink-0">
             {value && (
-              <button
-                type="button"
+              <div
+                role="button"
                 onClick={e => { e.stopPropagation(); onChange(''); setQuery('') }}
-                className="text-gray-400 hover:text-gray-600 p-0.5"
+                className="text-gray-400 hover:text-gray-600 p-0.5 cursor-pointer"
               >
                 <X size={12} />
-              </button>
+              </div>
             )}
             <ChevronDown size={16} className={`text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
           </div>
         </button>
 
-        {/* Dropdown */}
         {open && (
           <div className="absolute z-50 top-full mt-1 left-0 right-0 bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
-            {/* Search input */}
             <div className="p-2 border-b border-gray-50">
               <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-xl">
                 <Search size={14} className="text-gray-400 shrink-0" />
@@ -129,7 +121,6 @@ export function SearchableSelect({
               </div>
             </div>
 
-            {/* Options list */}
             <div className="max-h-56 overflow-y-auto">
               {filtered.length === 0 ? (
                 <div className="py-6 text-center text-gray-400 text-sm">No matches found</div>
@@ -154,8 +145,6 @@ export function SearchableSelect({
                 ))
               )}
             </div>
-
-            {/* Count */}
             {query && (
               <div className="px-4 py-2 border-t border-gray-50 text-xs text-gray-400">
                 {filtered.length} of {options.length} shown
@@ -168,7 +157,6 @@ export function SearchableSelect({
   )
 }
 
-// ── Ward-specific convenience wrapper ─────────────────────────────────────────
 interface Ward {
   ward_id: number
   ward_name: string

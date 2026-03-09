@@ -60,20 +60,26 @@ api.interceptors.response.use(
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 export const authAPI = {
+  // Citizen auth
+  loginCitizen:     (citizen_id: string, password: string) =>
+    api.post('/api/auth/login/citizen', { citizen_id, password }),
+  registerCitizen:  (data: object) =>
+    api.post('/api/auth/register/citizen', data),
+  checkCitizen:     (phone: string) =>
+    api.get('/api/auth/citizen/check', { params: { phone } }),
+  getDemoCitizens:  () =>
+    api.get('/api/auth/citizen/demo'),
+
+  // Legacy OTP methods (kept for officer/admin if needed)
   sendOTP:         (phone: string, role: string, language = 'en') =>
     api.post('/api/auth/send-otp', { phone, role, language }),
   verifyOTP:       (phone: string, otp: string, role: string) =>
     api.post('/api/auth/verify-otp', { phone, otp, role }),
   resendOTP:       (phone: string, role: string, language: string) =>
     api.post('/api/auth/resend-otp', { phone, role, language }),
-  checkCitizen:    (phone: string) =>
-    api.get('/api/auth/citizen/check', { params: { phone } }),
-  registerCitizen: (data: object, tempToken: string) =>
-    api.post('/api/auth/register/citizen', data, {
-      headers: { Authorization: `Bearer ${tempToken}` },
-    }),
+
+  // Officer/Admin
   registerOfficer: (data: object, tempToken?: string) =>
-    // tempToken is optional for self-registration (admin pre-creates officers)
     api.post('/api/auth/register/officer', data,
       tempToken ? { headers: { Authorization: `Bearer ${tempToken}` } } : undefined
     ),

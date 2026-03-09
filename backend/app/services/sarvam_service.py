@@ -1,9 +1,8 @@
 """
 Sarvam AI Service — Translation + STT + TTS
-Fixed: Sarvam /translate takes ONE string per call (not a list).
-       Response field is 'translated_text' (string), not an array.
+Supports all 22 scheduled Indian languages for translation.
+STT (Saarika v2.5): 12 languages with voice input.
 4-key rotation via api_rotation module.
-Supports 11 Indian languages.
 """
 import httpx
 import logging
@@ -15,41 +14,44 @@ logger = logging.getLogger(__name__)
 
 SARVAM_BASE = "https://api.sarvam.ai"
 
-# Our short code → Sarvam BCP-47 code
-# Sarvam supports all 22 scheduled Indian languages
+# ── Language map: short code → Sarvam BCP-47 ──────────────────────────────────
+# All 22 scheduled Indian languages (Constitution of India)
 LANGUAGE_MAP = {
     "en":  "en-IN",
-    "hi":  "hi-IN",
-    "bn":  "bn-IN",
-    "ta":  "ta-IN",
-    "te":  "te-IN",
-    "mr":  "mr-IN",
-    "gu":  "gu-IN",
-    "kn":  "kn-IN",
-    "ml":  "ml-IN",
-    "or":  "od-IN",   # Sarvam uses od-IN for Odia
-    "pa":  "pa-IN",
-    "ur":  "ur-IN",
-    "as":  "as-IN",
-    "mai": "mai-IN",
-    "kok": "kok-IN",
-    "ne":  "ne-IN",
-    "sd":  "sd-IN",
-    "doi": "doi-IN",
-    "sa":  "sa-IN",
-    "ks":  "ks-IN",
+    "hi":  "hi-IN",   # Hindi
+    "bn":  "bn-IN",   # Bengali
+    "ta":  "ta-IN",   # Tamil
+    "te":  "te-IN",   # Telugu
+    "mr":  "mr-IN",   # Marathi
+    "gu":  "gu-IN",   # Gujarati
+    "kn":  "kn-IN",   # Kannada
+    "ml":  "ml-IN",   # Malayalam
+    "pa":  "pa-IN",   # Punjabi
+    "or":  "od-IN",   # Odia (Sarvam uses od-IN)
+    "as":  "as-IN",   # Assamese
+    "ur":  "ur-IN",   # Urdu
+    "mai": "mai-IN",  # Maithili
+    "kok": "kok-IN",  # Konkani
+    "ne":  "ne-IN",   # Nepali
+    "sd":  "sd-IN",   # Sindhi
+    "doi": "doi-IN",  # Dogri
+    "sa":  "sa-IN",   # Sanskrit
+    "mni": "mni-IN",  # Manipuri (Meitei)
+    "brx": "brx-IN",  # Bodo
+    "ks":  "ks-IN",   # Kashmiri
 }
 
-# Languages that Sarvam STT/TTS supports (subset — for voice features)
-VOICE_SUPPORTED = {
-    "hi", "bn", "ta", "te", "mr", "gu", "kn", "ml", "pa", "or"
+# Languages where Sarvam STT (Saarika v2.5) has explicit voice support
+# saaras:v2.5 auto-detects all Indian languages
+STT_SUPPORTED = {
+    "hi", "bn", "ta", "te", "mr", "gu", "kn", "ml", "pa", "or", "as", "en"
 }
 
 
 async def _translate_one(text: str, src_code: str, tgt_code: str, api_key: str) -> str:
     """
-    Translate ONE string using Sarvam /translate endpoint.
-    Sarvam API takes a single string in 'input', returns 'translated_text'.
+    Translate ONE string using Sarvam /translate.
+    Sarvam takes a single string in 'input', returns 'translated_text'.
     """
     if not text or not text.strip():
         return text
@@ -60,10 +62,10 @@ async def _translate_one(text: str, src_code: str, tgt_code: str, api_key: str) 
                 f"{SARVAM_BASE}/translate",
                 headers={
                     "Content-Type": "application/json",
-                    "api-subscription-key": api_key,  # correct header name
+                    "api-subscription-key": api_key,
                 },
                 json={
-                    "input": text,                    # single string, NOT a list
+                    "input": text,
                     "source_language_code": src_code,
                     "target_language_code": tgt_code,
                     "speaker_gender": "Female",
@@ -78,12 +80,11 @@ async def _translate_one(text: str, src_code: str, tgt_code: str, api_key: str) 
 
             resp.raise_for_status()
             data = resp.json()
-            # Sarvam returns: {"translated_text": "...", "source_language_code": "...", ...}
             return data.get("translated_text", text)
 
     except Exception as e:
-        logger.warning(f"Sarvam translate error for '{text[:30]}...': {e}")
-        return text  # fallback to original
+        logger.warning(f"Sarvam translate error: {e}")
+        return text
 
 
 async def translate_text(
@@ -92,43 +93,39 @@ async def translate_text(
     source_lang: str = "en",
 ) -> List[str]:
     """
-    Translate a list of strings. Calls Sarvam once per string concurrently.
-    Falls back to original text on any error.
+    Translate a list of strings concurrently.
+    Falls back to original on any error.
     """
     if not texts:
         return texts
-
-    # No translation needed for English or same language
     if source_lang == target_lang or target_lang == "en":
         return texts
 
     src_code = LANGUAGE_MAP.get(source_lang, "en-IN")
     tgt_code = LANGUAGE_MAP.get(target_lang, "hi-IN")
-    api_key = get_sarvam_key()
+    api_key  = get_sarvam_key()
 
-    # Translate all strings concurrently (with max 5 concurrent to avoid rate limits)
     semaphore = asyncio.Semaphore(5)
 
     async def limited_translate(text: str) -> str:
         async with semaphore:
             return await _translate_one(text, src_code, tgt_code, api_key)
 
-    results = await asyncio.gather(
-        *[limited_translate(t) for t in texts],
-        return_exceptions=False,
-    )
-
+    results = await asyncio.gather(*[limited_translate(t) for t in texts])
     return list(results)
 
 
-async def translate_single(text: str, target_lang: str, source_lang: str = "en") -> str:
-    """Translate a single string."""
+async def translate_single(
+    text: str,
+    target_lang: str,
+    source_lang: str = "en",
+) -> str:
+    """Translate a single string. Returns original on failure."""
     if source_lang == target_lang or target_lang == "en":
         return text
-
     src_code = LANGUAGE_MAP.get(source_lang, "en-IN")
     tgt_code = LANGUAGE_MAP.get(target_lang, "hi-IN")
-    api_key = get_sarvam_key()
+    api_key  = get_sarvam_key()
     return await _translate_one(text, src_code, tgt_code, api_key)
 
 
@@ -137,18 +134,21 @@ async def speech_to_text(
     language_hint: Optional[str] = None,
 ) -> dict:
     """
-    Transcribe audio to text using Sarvam Saarika v2.5.
-    Auto-detects Indian language if no hint given.
+    Transcribe audio using Sarvam.
+    - If language is in STT_SUPPORTED, uses Saarika v2.5 with explicit language code.
+    - Otherwise, uses Saaras v2.5 which auto-detects the Indian language.
     Returns: {"transcript": str, "language_code": str, "confidence": float}
     """
     api_key = get_sarvam_key()
 
+    # Choose model: saaras auto-detects, saarika needs explicit language
+    use_saaras = (language_hint is None) or (language_hint not in STT_SUPPORTED)
+    model = "saaras:v2.5" if use_saaras else "saarika:v2.5"
+
     try:
-        form_data = {
-            "model": "saarika:v2.5",
-            "with_timestamps": "false",
-        }
-        if language_hint and language_hint in LANGUAGE_MAP:
+        form_data: dict = {"model": model, "with_timestamps": "false"}
+
+        if not use_saaras and language_hint and language_hint in LANGUAGE_MAP:
             form_data["language_code"] = LANGUAGE_MAP[language_hint]
 
         async with httpx.AsyncClient(timeout=30) as client:
@@ -160,20 +160,45 @@ async def speech_to_text(
             )
             if resp.status_code == 429:
                 mark_sarvam_error(api_key)
+                # Retry once with new key
                 return await speech_to_text(audio_bytes, language_hint)
 
             resp.raise_for_status()
             data = resp.json()
-            full_lang = data.get("language_code", "hi-IN")
+            full_lang  = data.get("language_code", "hi-IN")
             short_lang = full_lang.split("-")[0]
+            # Odia: od → or (our internal code)
+            if short_lang == "od":
+                short_lang = "or"
+
             return {
-                "transcript": data.get("transcript", ""),
-                "language_code": short_lang,
-                "confidence": data.get("confidence", 0.9),
+                "transcript":     data.get("transcript", ""),
+                "language_code":  short_lang,
+                "confidence":     data.get("confidence", 0.9),
             }
+
     except Exception as e:
         logger.error(f"Sarvam STT error: {e}")
-        return {"transcript": "", "language_code": "hi", "confidence": 0.0}
+        return {"transcript": "", "language_code": language_hint or "hi", "confidence": 0.0}
+
+
+async def speech_to_text_from_url(
+    audio_url: str,
+    language_hint: Optional[str] = None,
+) -> dict:
+    """
+    Download audio from URL then transcribe.
+    Used by the /transcribe-url backend endpoint.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.get(audio_url)
+            r.raise_for_status()
+            audio_bytes = r.content
+        return await speech_to_text(audio_bytes, language_hint)
+    except Exception as e:
+        logger.error(f"Failed to fetch audio from URL {audio_url}: {e}")
+        return {"transcript": "", "language_code": language_hint or "hi", "confidence": 0.0}
 
 
 async def text_to_speech(
@@ -182,12 +207,18 @@ async def text_to_speech(
     gender: str = "female",
 ) -> Optional[bytes]:
     """
-    Convert text to speech for officer notifications.
+    Convert text to speech using Sarvam Bulbul v2.
+    Supported languages: hi, bn, ta, te, mr, gu, kn, ml, pa, or, en
     Returns audio bytes (WAV) or None on failure.
     """
-    api_key = get_sarvam_key()
+    api_key   = get_sarvam_key()
     lang_code = LANGUAGE_MAP.get(language, "hi-IN")
-    speaker = "meera" if gender == "female" else "arjun"
+    speaker   = "meera" if gender == "female" else "arjun"
+
+    # TTS only supports 11 languages — fall back to Hindi for unsupported
+    tts_supported = {"hi", "bn", "ta", "te", "mr", "gu", "kn", "ml", "pa", "or", "en"}
+    if language not in tts_supported:
+        lang_code = "hi-IN"
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
@@ -201,7 +232,7 @@ async def text_to_speech(
                     "pitch": 0,
                     "pace": 1.0,
                     "loudness": 1.5,
-                    "model": "bulbul:v2",  # Updated to v2
+                    "model": "bulbul:v2",
                 },
             )
             resp.raise_for_status()
