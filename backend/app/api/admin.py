@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from app.core.database import get_db
 from app.middleware.auth_middleware import require_admin
 
-router = APIRouter(prefix="/api/admin", tags=["admin"])
+router = APIRouter(tags=["admin"])
 logger = logging.getLogger(__name__)
 
 

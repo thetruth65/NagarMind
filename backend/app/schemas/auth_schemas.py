@@ -50,13 +50,26 @@ class VerifyOTPRequest(BaseModel):
         return v
 
 
+class CitizenLoginRequest(BaseModel):
+    citizen_id: str
+    password: str
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v):
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters")
+        return v
+
+
 class CitizenRegisterRequest(BaseModel):
     phone: str
     full_name: str
+    password: str
+    password_confirm: str
     ward_id: int
     preferred_language: str = "en"
     home_address: Optional[str] = None
-    temp_token: Optional[str] = None
 
     @field_validator("full_name")
     @classmethod
@@ -64,6 +77,20 @@ class CitizenRegisterRequest(BaseModel):
         if len(v.strip()) < 2:
             raise ValueError("Name too short")
         return v.strip()
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v):
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters")
+        return v
+
+    @field_validator("password_confirm")
+    @classmethod
+    def validate_password_confirm(cls, v, info):
+        if "password" in info.data and v != info.data["password"]:
+            raise ValueError("Passwords do not match")
+        return v
 
 
 class OfficerRegisterRequest(BaseModel):

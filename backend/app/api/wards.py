@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from app.core.database import get_db
 
-router = APIRouter(prefix="/api/wards", tags=["wards"])
+router = APIRouter(tags=["wards"])
 
 @router.get("/")
 async def list_wards(pool=Depends(get_db)):

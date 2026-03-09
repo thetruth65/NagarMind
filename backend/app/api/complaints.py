@@ -18,7 +18,7 @@ from app.services.notification_service import notify_citizen, notify_officer
 from app.services.ward_health_service import recalculate_ward_health
 from app.services.gemini_service import analyze_dispute
 
-router = APIRouter(prefix="/api/complaints", tags=["complaints"])
+router = APIRouter(tags=["complaints"])
 logger = logging.getLogger(__name__)
 
 # ─── SUBMIT ───────────────────────────────────────────────────────────────────

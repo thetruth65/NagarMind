@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from app.services.r2_service import generate_upload_url
 from app.middleware.auth_middleware import require_any
 
-router = APIRouter(prefix="/api/upload", tags=["upload"])
+router = APIRouter(tags=["upload"])
 
 
 class PresignRequest(BaseModel):

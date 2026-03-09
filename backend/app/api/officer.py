@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends
 from app.core.database import get_db
 from app.middleware.auth_middleware import require_officer
 
-router = APIRouter(prefix="/api/officer", tags=["officer"])
+router = APIRouter(tags=["officer"])
 
 
 @router.get("/me/performance")

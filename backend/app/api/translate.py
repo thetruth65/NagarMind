@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from typing import List
 from app.services.sarvam_service import translate_text, translate_single
 
-router = APIRouter(prefix="/api/translate", tags=["translate"])
+router = APIRouter(tags=["translate"])
 
 
 class TranslateBatchRequest(BaseModel):

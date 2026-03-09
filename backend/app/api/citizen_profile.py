@@ -5,7 +5,7 @@ from typing import Optional
 from app.core.database import get_db
 from app.middleware.auth_middleware import require_citizen
 
-router = APIRouter(prefix="/api/citizen", tags=["citizen"])
+router = APIRouter(tags=["citizen"])
 
 
 class ProfileUpdateRequest(BaseModel):

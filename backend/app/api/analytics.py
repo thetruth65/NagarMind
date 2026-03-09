@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Query, Response
 from app.core.database import get_db
 from app.middleware.auth_middleware import require_admin
 
-router = APIRouter(prefix="/api/analytics", tags=["analytics"])
+router = APIRouter(tags=["analytics"])
 logger = logging.getLogger(__name__)
 
 

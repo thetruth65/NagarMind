@@ -26,12 +26,12 @@ from app.core.security import (
 )
 from app.schemas.auth_schemas import (
     SendOTPRequest, VerifyOTPRequest,
-    CitizenRegisterRequest, OfficerRegisterRequest,
+    CitizenLoginRequest, CitizenRegisterRequest, OfficerRegisterRequest,
     TokenResponse, OTPResponse,
 )
 from app.services.sms_service import send_otp_sms
 
-router = APIRouter(prefix="/api/auth", tags=["auth"])
+router = APIRouter(tags=["auth"])
 security = HTTPBearer(auto_error=False)
 logger = logging.getLogger(__name__)
 
@@ -275,29 +275,85 @@ async def check_citizen(phone: str, pool=Depends(get_db)):
     }
 
 
+# ─── GET DEMO CITIZENS ────────────────────────────────────────────────────────────
+@router.get("/citizen/demo")
+async def get_demo_citizens(pool=Depends(get_db)):
+    """Get first 3 seeded citizens for demo login purposes"""
+    citizens = await pool.fetch(
+        """SELECT citizen_id, full_name, ward_id, preferred_language
+           FROM citizens
+           ORDER BY created_at ASC
+           LIMIT 3"""
+    )
+
+    return {
+        "demo_citizens": [
+            {
+                "citizen_id": str(row["citizen_id"]),
+                "name": row["full_name"],
+                "ward_id": row["ward_id"],
+                "password": "TestPass@123"
+            }
+            for row in citizens
+        ]
+    }
+
+
+# ─── CITIZEN LOGIN ─────────────────────────────────────────────────────────────
+@router.post("/login/citizen", response_model=TokenResponse)
+async def citizen_login(body: CitizenLoginRequest, pool=Depends(get_db)):
+    """Citizen login with citizen_id and password"""
+    # Fetch citizen by citizen_id
+    citizen = await pool.fetchrow(
+        "SELECT citizen_id, full_name, password_hash, is_active FROM citizens WHERE citizen_id=$1",
+        body.citizen_id,
+    )
+    if not citizen:
+        raise HTTPException(401, "Invalid credentials.")
+    if not citizen["is_active"]:
+        raise HTTPException(403, "Account deactivated.")
+    if not verify_password(body.password, citizen["password_hash"]):
+        raise HTTPException(401, "Invalid credentials.")
+
+    # Update last login
+    await pool.execute("UPDATE citizens SET last_login=NOW() WHERE citizen_id=$1", citizen["citizen_id"])
+
+    token = create_token({"sub": str(citizen["citizen_id"])}, role="citizen")
+    return {
+        "access_token": token, "token_type": "bearer",
+        "role": "citizen", "user_id": str(citizen["citizen_id"]),
+        "full_name": citizen["full_name"], "is_new_user": False,
+    }
+
+
 # ─── CITIZEN REGISTER ─────────────────────────────────────────────────────────
-@router.post("/register/citizen")
+@router.post("/register/citizen", response_model=TokenResponse)
 async def register_citizen(body: CitizenRegisterRequest, pool=Depends(get_db)):
-    # Verify temp token
-    payload = decode_token(body.temp_token) if hasattr(body, "temp_token") and body.temp_token else None
+    """Register new citizen with password"""
+    # Normalize phone - extract just digits
+    digits_only = "".join(filter(str.isdigit, body.phone))
+    if len(digits_only) == 12 and digits_only.startswith("91"):
+        digits_only = digits_only[2:]
+    elif len(digits_only) == 11 and digits_only.startswith("0"):
+        digits_only = digits_only[1:]
 
     # Check if ward exists
     ward = await pool.fetchrow("SELECT ward_id FROM wards WHERE ward_id=$1", body.ward_id)
     if not ward:
         raise HTTPException(400, f"Ward {body.ward_id} not found.")
 
+    # Hash password
+    pw_hash = hash_password(body.password)
+
     # Insert citizen
     try:
         row = await pool.fetchrow(
-            """INSERT INTO citizens (phone_number, full_name, ward_id, preferred_language, home_address)
-               VALUES ($1,$2,$3,$4,$5)
+            """INSERT INTO citizens (phone_number, full_name, password_hash, ward_id, preferred_language, home_address)
+               VALUES ($1,$2,$3,$4,$5,$6)
                ON CONFLICT (phone_number) DO UPDATE
-               SET full_name=$2, ward_id=$3, preferred_language=$4, home_address=$5, last_login=NOW()
+               SET full_name=$2, password_hash=$3, ward_id=$4, preferred_language=$5, home_address=$6, last_login=NOW()
                RETURNING citizen_id, full_name""",
-            # ✅ FIX: Normalize phone - store as digits only in database
-            "".join(filter(str.isdigit, body.phone)),
-            body.full_name, body.ward_id, body.preferred_language,
-            body.home_address,
+            digits_only, body.full_name, pw_hash, body.ward_id, body.preferred_language, body.home_address,
         )
     except Exception as e:
         raise HTTPException(400, f"Registration failed: {e}")
@@ -308,6 +364,7 @@ async def register_citizen(body: CitizenRegisterRequest, pool=Depends(get_db)):
         "role": "citizen", "user_id": str(row["citizen_id"]),
         "full_name": row["full_name"], "is_new_user": True,
     }
+
 
 
 # ─── OFFICER REGISTER ─────────────────────────────────────────────────────────

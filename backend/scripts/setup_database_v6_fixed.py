@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS citizens (
     ward_id             INT REFERENCES wards(ward_id),
     home_address        TEXT,
     preferred_language  VARCHAR(10)  NOT NULL DEFAULT 'en',
+    password_hash       VARCHAR(255) NOT NULL,
     profile_photo_url   TEXT,
     total_complaints    INT          NOT NULL DEFAULT 0,
     is_active           BOOLEAN      NOT NULL DEFAULT TRUE,
@@ -563,6 +564,8 @@ async def setup(pool):
     # ── 4. CITIZENS (10 per ward = 2720 total) ────────────────────────────────
     print("\n👤 Seeding 10 citizens per ward (2720 total)...")
     citizen_ids = []
+    # Hash the test password once for all citizens
+    test_password_hash = hash_pwd("TestPass@123")
     async with pool.acquire() as conn:
         citizen_count = 0
         for wid, zone in ward_ids:
@@ -571,12 +574,12 @@ async def setup(pool):
                 name = f"{random.choice(CITIZEN_PREFIXES)} {random.choice(CITIZEN_SUFFIXES)}"
                 phone = f"9{random.randint(100000000, 999999999)}"
                 cid = await conn.fetchval(
-                    """INSERT INTO citizens (phone_number, full_name, ward_id, preferred_language)
-                       VALUES ($1,$2,$3,'en') RETURNING citizen_id""",
-                    phone, name, wid
+                    """INSERT INTO citizens (phone_number, full_name, password_hash, ward_id, preferred_language)
+                       VALUES ($1,$2,$3,$4,'en') RETURNING citizen_id""",
+                    phone, name, test_password_hash, wid
                 )
                 citizen_ids.append((cid, wid))
-    print(f"  ✓ {citizen_count} citizens seeded")
+    print(f"  ✓ {citizen_count} citizens seeded — all password: TestPass@123")
 
     # ── 5. COMPLAINTS (500-600 spread over 30 days) ────────────────────────
     print("\n📋 Seeding 550 complaints with proper SLA tracking...")
