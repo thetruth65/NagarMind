@@ -1,7 +1,7 @@
 """
 Agent 6: Predictive Alert Engine
 Runs hourly. Detects: flood risk, pothole clusters, sanitation breakdown,
-officer overload, SLA cascade. Generates 3-sentence Gemini narrative per alert.
+officer overload, SLA cascade. Generates Gemini narrative per alert.
 """
 import logging
 import json
@@ -36,45 +36,41 @@ Max 80 words."""
 
 async def run_predictive_alerts(pool):
     """Full predictive alert scan across all wards."""
-    now = datetime.now(timezone.utc)
     alerts_created = 0
 
-    # 1. Flood risk — >5 drainage complaints in same area within 6 hours
+    # 1. Flood risk — >5 sewage complaints in same ward within 6 hours
+    # v7: removed location_hash, location_address — group by ward only
     flood_rows = await pool.fetch(
-        """SELECT ward_id, location_hash,
-                  COUNT(*) AS complaint_count,
-                  array_agg(location_address) AS addresses,
-                  MIN(created_at) AS first_complaint
+        """SELECT ward_id, COUNT(*) AS complaint_count,
+                  array_agg(address) FILTER (WHERE address IS NOT NULL) AS addresses
            FROM complaints
            WHERE category = 'sewage'
              AND created_at >= NOW() - INTERVAL '6 hours'
              AND status != 'resolved'
-             AND location_hash IS NOT NULL
-           GROUP BY ward_id, location_hash
+           GROUP BY ward_id
            HAVING COUNT(*) >= 5""",
     )
     for row in flood_rows:
         evidence = {
             "complaint_count": row["complaint_count"],
-            "location_hash": row["location_hash"],
             "sample_address": (row["addresses"] or ["Unknown"])[0],
         }
         narrative = await _generate_alert_narrative("flood_risk", evidence)
         await _upsert_alert(pool, row["ward_id"], "flood_risk", "critical", narrative, evidence)
         alerts_created += 1
 
-    # 2. Pothole cluster — >3 potholes within 200m (same geo-hash) in 48h
+    # 2. Pothole cluster — >3 potholes in same ward in 48h
+    # v7: removed location_hash — group by ward_id only
     pothole_rows = await pool.fetch(
-        """SELECT ward_id, location_hash, COUNT(*) AS count
+        """SELECT ward_id, COUNT(*) AS count
            FROM complaints
            WHERE category = 'pothole'
              AND created_at >= NOW() - INTERVAL '48 hours'
-             AND location_hash IS NOT NULL
-           GROUP BY ward_id, location_hash
+           GROUP BY ward_id
            HAVING COUNT(*) >= 3""",
     )
     for row in pothole_rows:
-        evidence = {"count": row["count"], "area_hash": row["location_hash"]}
+        evidence = {"count": row["count"], "ward_id": row["ward_id"]}
         narrative = await _generate_alert_narrative("pothole_cluster", evidence)
         await _upsert_alert(pool, row["ward_id"], "pothole_cluster", "high", narrative, evidence)
         alerts_created += 1
@@ -96,35 +92,36 @@ async def run_predictive_alerts(pool):
         alerts_created += 1
 
     # 4. Officer overload — officer with >20 open complaints
+    # v7: full_name → name, assigned_officer_id → officer_id
     overload_rows = await pool.fetch(
-        """SELECT o.officer_id, o.full_name, o.ward_id,
+        """SELECT o.officer_id, o.name AS officer_name, o.ward_id,
                   COUNT(c.complaint_id) AS open_count
            FROM officers o
-           JOIN complaints c ON c.assigned_officer_id = o.officer_id
+           JOIN complaints c ON c.officer_id = o.officer_id
            WHERE c.status NOT IN ('resolved', 'closed')
-           GROUP BY o.officer_id, o.full_name, o.ward_id
+           GROUP BY o.officer_id, o.name, o.ward_id
            HAVING COUNT(c.complaint_id) >= 20""",
     )
     for row in overload_rows:
         if not row["ward_id"]:
             continue
-        evidence = {"officer_name": row["full_name"], "open_count": row["open_count"]}
+        evidence = {"officer_name": row["officer_name"], "open_count": row["open_count"]}
         narrative = await _generate_alert_narrative("officer_overload", evidence)
         await _upsert_alert(pool, row["ward_id"], "officer_overload", "medium", narrative, evidence)
         alerts_created += 1
 
-    # 5. SLA cascade — >5 SLA breaches from same department in 48h
+    # 5. SLA cascade — >5 SLA breaches in same ward in 48h
+    # v7: removed department column — group by ward only
     cascade_rows = await pool.fetch(
-        """SELECT ward_id, department, COUNT(*) AS breach_count
+        """SELECT ward_id, COUNT(*) AS breach_count
            FROM complaints
            WHERE sla_breached = TRUE
              AND created_at >= NOW() - INTERVAL '48 hours'
-             AND department IS NOT NULL
-           GROUP BY ward_id, department
+           GROUP BY ward_id
            HAVING COUNT(*) >= 5""",
     )
     for row in cascade_rows:
-        evidence = {"department": row["department"], "breaches_48h": row["breach_count"]}
+        evidence = {"breaches_48h": row["breach_count"], "ward_id": row["ward_id"]}
         narrative = await _generate_alert_narrative("sla_cascade", evidence)
         await _upsert_alert(pool, row["ward_id"], "sla_cascade", "high", narrative, evidence)
         alerts_created += 1
@@ -135,27 +132,30 @@ async def run_predictive_alerts(pool):
 
 async def _upsert_alert(pool, ward_id: int, alert_type: str, severity: str,
                         narrative: str, evidence: dict):
-    """Insert or update alert (deduplicate by ward+type in last 24h)."""
+    """Insert or update alert (deduplicate by ward+type in last 24h).
+    v7: is_resolved → is_active (TRUE = active), narrative → description
+    """
     existing = await pool.fetchrow(
         """SELECT alert_id FROM predictive_alerts
            WHERE ward_id = $1 AND alert_type = $2
              AND created_at >= NOW() - INTERVAL '24 hours'
-             AND is_resolved = FALSE
+             AND is_active = TRUE
            LIMIT 1""",
         ward_id, alert_type,
     )
     if existing:
         await pool.execute(
             """UPDATE predictive_alerts
-               SET narrative = $1, evidence = $2, updated_at = NOW()
+               SET description = $1, evidence = $2, updated_at = NOW()
                WHERE alert_id = $3""",
             narrative, json.dumps(evidence), existing["alert_id"],
         )
     else:
         await pool.execute(
             """INSERT INTO predictive_alerts
-               (alert_id, ward_id, alert_type, severity, narrative, evidence)
-               VALUES ($1, $2, $3, $4, $5, $6)""",
+               (alert_id, ward_id, alert_type, severity, title, description, evidence, is_active)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE)""",
             str(uuid4()), ward_id, alert_type, severity,
+            ALERT_TYPES.get(alert_type, alert_type),
             narrative, json.dumps(evidence),
         )

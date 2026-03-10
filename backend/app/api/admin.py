@@ -1,16 +1,13 @@
 """
-Admin / Commissioner API
-All endpoints require admin role JWT.
-- GET  /api/admin/overview         → city-wide stats
-- GET  /api/admin/wards/heatmap    → all wards with scores for map
-- GET  /api/admin/wards/{id}       → full ward drill-down
-- GET  /api/admin/alerts           → all active predictive alerts
-- POST /api/admin/alerts/{id}/resolve → mark alert resolved
-- GET  /api/admin/officers         → all officers + performance
-- GET  /api/admin/digests          → weekly digest list
-- GET  /api/admin/digests/{ward_id}/{week} → single digest
-- POST /api/admin/digests/trigger  → manually trigger digest generation
-- POST /api/admin/health/recalculate → manually recalculate all ward health
+Admin / Commissioner API — updated for v7 schema.
+v7 changes:
+  officers.full_name → name
+  officers: no sla_compliance_rate, citizen_rating_avg, performance_score,
+            total_assigned, total_resolved, avg_resolution_hours cols
+  complaints: no disputed, sub_category, department, acknowledged_at,
+              assigned_at, location_hash, location_address, original_language cols
+              assigned_officer_id → officer_id
+  predictive_alerts: is_resolved → is_active (inverted), no narrative col
 """
 import logging
 from datetime import datetime, timezone, date
@@ -33,8 +30,7 @@ async def city_overview(pool=Depends(get_db), _=Depends(require_admin)):
                COUNT(*) FILTER (WHERE sla_breached = TRUE AND status NOT IN ('resolved','closed')) AS overdue,
                COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours') AS new_today,
                COUNT(*) FILTER (WHERE resolved_at >= NOW() - INTERVAL '24 hours') AS resolved_today,
-               AVG(citizen_rating) FILTER (WHERE citizen_rating IS NOT NULL) AS avg_rating,
-               COUNT(*) FILTER (WHERE disputed = TRUE AND status = 'disputed') AS active_disputes
+               AVG(citizen_rating) FILTER (WHERE citizen_rating IS NOT NULL) AS avg_rating
            FROM complaints"""
     )
 
@@ -50,8 +46,9 @@ async def city_overview(pool=Depends(get_db), _=Depends(require_admin)):
            GROUP BY category ORDER BY count DESC LIMIT 5"""
     )
 
+    # v7: is_active=TRUE means alert is active (not is_resolved=FALSE)
     active_alerts = await pool.fetchval(
-        "SELECT COUNT(*) FROM predictive_alerts WHERE is_resolved = FALSE"
+        "SELECT COUNT(*) FROM predictive_alerts WHERE is_active = TRUE"
     ) or 0
 
     return {
@@ -68,7 +65,7 @@ async def wards_heatmap(pool=Depends(get_db)):
     """Public-ish — used by landing page map. No auth to allow embed."""
     rows = await pool.fetch(
         """SELECT w.ward_id, w.ward_name, w.zone, w.lat_center, w.lng_center,
-                  w.health_score, w.health_grade, w.health_updated_at,
+                  w.health_score, w.health_grade,
                   COUNT(c.complaint_id) FILTER (WHERE c.status NOT IN ('resolved','closed')) AS open_count,
                   COUNT(c.complaint_id) FILTER (WHERE c.resolved_at >= NOW() - INTERVAL '7 days') AS resolved_week,
                   COUNT(c.complaint_id) FILTER (WHERE c.sla_breached AND c.status NOT IN ('resolved','closed')) AS overdue_count,
@@ -101,33 +98,32 @@ async def ward_drilldown(ward_id: int, pool=Depends(get_db), _=Depends(require_a
         ward_id,
     )
 
-    # Officers in this ward
+    # Officers in this ward — v7: name not full_name, no perf stats cols
     officers = await pool.fetch(
-        """SELECT o.officer_id, o.full_name, o.designation, o.department,
-                  o.total_resolved, o.sla_compliance_rate, o.citizen_rating_avg,
-                  o.performance_score,
-                  COUNT(c.complaint_id) FILTER (WHERE c.status NOT IN ('resolved','closed')) AS open_count
+        """SELECT o.officer_id, o.name AS full_name, o.designation,
+                  COUNT(c.complaint_id) FILTER (WHERE c.status NOT IN ('resolved','closed')) AS open_count,
+                  COUNT(c.complaint_id) FILTER (WHERE c.status IN ('resolved','closed')) AS resolved_count
            FROM officers o
-           LEFT JOIN complaints c ON c.assigned_officer_id = o.officer_id
+           LEFT JOIN complaints c ON c.officer_id = o.officer_id
            WHERE o.ward_id=$1 AND o.is_active=TRUE
            GROUP BY o.officer_id
-           ORDER BY o.performance_score DESC NULLS LAST""",
+           ORDER BY resolved_count DESC""",
         ward_id,
     )
 
-    # Health score 30-day history
+    # Health score history
     health_history = await pool.fetch(
-        """SELECT calculated_at, composite_score, grade, trend
+        """SELECT calculated_at, composite_score
            FROM ward_health_scores
            WHERE ward_id=$1
            ORDER BY calculated_at DESC LIMIT 30""",
         ward_id,
     )
 
-    # Active predictive alerts
+    # Active predictive alerts — v7: is_active=TRUE (not is_resolved=FALSE)
     alerts = await pool.fetch(
         """SELECT * FROM predictive_alerts
-           WHERE ward_id=$1 AND is_resolved=FALSE
+           WHERE ward_id=$1 AND is_active=TRUE
            ORDER BY created_at DESC""",
         ward_id,
     )
@@ -163,11 +159,12 @@ async def ward_drilldown(ward_id: int, pool=Depends(get_db), _=Depends(require_a
 # ─── PREDICTIVE ALERTS ────────────────────────────────────────────────────────
 @router.get("/alerts")
 async def get_alerts(pool=Depends(get_db), _=Depends(require_admin)):
+    # v7: is_active=TRUE (not is_resolved=FALSE)
     rows = await pool.fetch(
         """SELECT pa.*, w.ward_name, w.zone
            FROM predictive_alerts pa
            JOIN wards w ON pa.ward_id = w.ward_id
-           WHERE pa.is_resolved = FALSE
+           WHERE pa.is_active = TRUE
            ORDER BY CASE pa.severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 ELSE 3 END,
                     pa.created_at DESC""",
     )
@@ -176,8 +173,9 @@ async def get_alerts(pool=Depends(get_db), _=Depends(require_admin)):
 
 @router.post("/alerts/{alert_id}/resolve")
 async def resolve_alert(alert_id: str, pool=Depends(get_db), _=Depends(require_admin)):
+    # v7: set is_active=FALSE to resolve
     await pool.execute(
-        "UPDATE predictive_alerts SET is_resolved=TRUE, resolved_at=NOW() WHERE alert_id=$1",
+        "UPDATE predictive_alerts SET is_active=FALSE WHERE alert_id=$1",
         alert_id,
     )
     return {"resolved": True}
@@ -186,16 +184,19 @@ async def resolve_alert(alert_id: str, pool=Depends(get_db), _=Depends(require_a
 # ─── OFFICER MANAGEMENT ───────────────────────────────────────────────────────
 @router.get("/officers")
 async def all_officers(pool=Depends(get_db), _=Depends(require_admin)):
+    # v7: name not full_name, no perf metric cols, complaints.officer_id (not assigned_officer_id)
     rows = await pool.fetch(
-        """SELECT o.officer_id, o.full_name, o.employee_id, o.designation, o.department,
-                  o.ward_id, w.ward_name, o.zone, o.total_assigned, o.total_resolved,
-                  o.sla_compliance_rate, o.citizen_rating_avg, o.performance_score, o.is_active,
-                  COUNT(c.complaint_id) FILTER (WHERE c.status NOT IN ('resolved','closed')) AS open_count
+        """SELECT o.officer_id, o.name AS full_name, o.employee_id, o.designation,
+                  o.ward_id, w.ward_name, o.is_active,
+                  COUNT(c.complaint_id) FILTER (WHERE c.status NOT IN ('resolved','closed')) AS open_count,
+                  COUNT(c.complaint_id) FILTER (WHERE c.status IN ('resolved','closed')) AS resolved_count,
+                  COUNT(c.complaint_id) AS total_assigned,
+                  AVG(c.citizen_rating) FILTER (WHERE c.citizen_rating IS NOT NULL) AS citizen_rating_avg
            FROM officers o
            LEFT JOIN wards w ON o.ward_id = w.ward_id
-           LEFT JOIN complaints c ON c.assigned_officer_id = o.officer_id
+           LEFT JOIN complaints c ON c.officer_id = o.officer_id
            GROUP BY o.officer_id, w.ward_name
-           ORDER BY o.performance_score DESC NULLS LAST""",
+           ORDER BY resolved_count DESC NULLS LAST""",
     )
     return {"officers": [dict(r) for r in rows]}
 
@@ -210,6 +211,7 @@ async def list_digests(pool=Depends(get_db), _=Depends(require_admin)):
                   d.is_published
            FROM weekly_digests d
            JOIN wards w ON d.ward_id = w.ward_id
+           WHERE d.digest_type = 'ward'
            ORDER BY d.week_start DESC, w.ward_name ASC
            LIMIT 300""",
     )
@@ -238,7 +240,6 @@ async def trigger_digest(
     pool=Depends(get_db),
     _=Depends(require_admin),
 ):
-    """Manually trigger weekly digest generation for all wards."""
     from app.services.weekly_digest_service import generate_all_ward_digests
     background_tasks.add_task(generate_all_ward_digests, pool)
     return {"message": "Weekly digest generation started in background for all 272 wards."}

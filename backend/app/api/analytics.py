@@ -72,7 +72,7 @@ async def zone_comparison(
     pool=Depends(get_db),
     _=Depends(require_admin),
 ):
-    """Compare all 5 MCD zones: North, South, East, West, North-West, South-West, Central."""
+    """Compare all MCD zones."""
     rows = await pool.fetch(
         """
         SELECT
@@ -100,23 +100,41 @@ async def officer_leaderboard_full(
     pool=Depends(get_db),
     _=Depends(require_admin),
 ):
-    """Full city-wide officer leaderboard with all metrics."""
+    """Full city-wide officer leaderboard with all metrics — computed live."""
     rows = await pool.fetch(
         """
         SELECT
-            o.officer_id, o.full_name, o.employee_id, o.designation,
-            o.department, o.ward_id, w.ward_name, o.zone,
-            o.total_assigned, o.total_resolved, o.sla_compliance_rate,
-            o.citizen_rating_avg, o.performance_score, o.is_active,
+            o.officer_id, o.name AS full_name, o.employee_id, o.designation,
+            o.ward_id, w.ward_name, o.is_active,
             COUNT(c.complaint_id) FILTER (WHERE c.status NOT IN ('resolved','closed')) AS open_count,
+            COUNT(c.complaint_id) FILTER (WHERE c.status IN ('resolved','closed')) AS total_resolved,
+            COUNT(c.complaint_id) AS total_assigned,
             COUNT(c.complaint_id) FILTER (
-                WHERE c.resolved_at >= NOW() - INTERVAL '7 days') AS resolved_this_week,
-            COUNT(c.complaint_id) FILTER (WHERE c.sla_breached = TRUE) AS total_breaches
+                WHERE c.resolved_at >= NOW() - INTERVAL '7 days'
+                  AND c.status IN ('resolved','closed')) AS resolved_this_week,
+            COUNT(c.complaint_id) FILTER (WHERE c.sla_breached = TRUE) AS total_breaches,
+            ROUND(
+                100.0 * COUNT(c.complaint_id) FILTER (WHERE c.status IN ('resolved','closed') AND c.sla_breached = FALSE)
+                / NULLIF(COUNT(c.complaint_id) FILTER (WHERE c.status IN ('resolved','closed')), 0),
+                1
+            ) AS sla_compliance_rate,
+            ROUND(AVG(c.citizen_rating) FILTER (WHERE c.citizen_rating IS NOT NULL)::decimal, 2) AS citizen_rating_avg,
+            ROUND(
+              (
+                COALESCE(
+                  100.0 * COUNT(c.complaint_id) FILTER (WHERE c.status IN ('resolved','closed') AND c.sla_breached = FALSE)
+                  / NULLIF(COUNT(c.complaint_id) FILTER (WHERE c.status IN ('resolved','closed')), 0),
+                  50
+                )
+                + COALESCE(AVG(c.citizen_rating) FILTER (WHERE c.citizen_rating IS NOT NULL) * 20, 50)
+              ) / 2,
+              1
+            ) AS performance_score
         FROM officers o
         LEFT JOIN wards w ON o.ward_id = w.ward_id
-        LEFT JOIN complaints c ON c.assigned_officer_id = o.officer_id
+        LEFT JOIN complaints c ON c.officer_id = o.officer_id
         GROUP BY o.officer_id, w.ward_name
-        ORDER BY COALESCE(o.performance_score, 0) DESC
+        ORDER BY performance_score DESC NULLS LAST
         LIMIT $1
         """,
         limit,
@@ -130,7 +148,7 @@ async def worst_wards(
     pool=Depends(get_db),
     _=Depends(require_admin),
 ):
-    """Bottom N wards by health score with drill-down data."""
+    """Bottom N wards by health score."""
     rows = await pool.fetch(
         """
         SELECT
@@ -181,18 +199,17 @@ async def export_complaints_csv(
     rows = await pool.fetch(
         """
         SELECT
-            c.complaint_id, c.title, c.category, c.sub_category,
-            c.urgency, c.status, c.department,
+            c.complaint_id, c.title, c.category,
+            c.urgency, c.status,
             w.ward_name, w.zone,
-            c.location_address, c.location_lat, c.location_lng,
-            c.created_at, c.assigned_at, c.resolved_at,
+            c.address, c.latitude, c.longitude,
+            c.created_at, c.resolved_at,
             c.sla_hours, c.sla_deadline, c.sla_breached,
-            c.citizen_rating, c.disputed,
-            c.original_language, c.submission_channel,
-            o.full_name AS officer_name, o.designation AS officer_designation
+            c.citizen_rating,
+            o.name AS officer_name, o.designation AS officer_designation
         FROM complaints c
         JOIN wards w ON c.ward_id = w.ward_id
-        LEFT JOIN officers o ON c.assigned_officer_id = o.officer_id
+        LEFT JOIN officers o ON c.officer_id = o.officer_id
         WHERE c.created_at >= NOW() - MAKE_INTERVAL(days => $1)
         ORDER BY c.created_at DESC
         """,
@@ -220,7 +237,7 @@ async def export_complaints_csv(
     return Response(
         content=csv_content,
         media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=nagarmind_complaints_{days}d.csv"},
+        headers={"Content-Disposition": f"attachment; filename=complaints_{days}d.csv"},
     )
 
 
@@ -231,13 +248,22 @@ async def export_officers_csv(
 ):
     rows = await pool.fetch(
         """
-        SELECT o.employee_id, o.full_name, o.designation, o.department,
-               w.ward_name, o.zone, o.total_assigned, o.total_resolved,
-               o.sla_compliance_rate, o.citizen_rating_avg, o.performance_score,
+        SELECT o.employee_id, o.name AS full_name, o.designation,
+               w.ward_name,
+               COUNT(c.complaint_id) AS total_assigned,
+               COUNT(c.complaint_id) FILTER (WHERE c.status IN ('resolved','closed')) AS total_resolved,
+               ROUND(
+                   100.0 * COUNT(c.complaint_id) FILTER (WHERE c.status IN ('resolved','closed') AND c.sla_breached = FALSE)
+                   / NULLIF(COUNT(c.complaint_id) FILTER (WHERE c.status IN ('resolved','closed')), 0),
+                   1
+               ) AS sla_compliance_rate,
+               ROUND(AVG(c.citizen_rating) FILTER (WHERE c.citizen_rating IS NOT NULL)::decimal, 2) AS citizen_rating_avg,
                o.is_active
         FROM officers o
         LEFT JOIN wards w ON o.ward_id = w.ward_id
-        ORDER BY o.performance_score DESC NULLS LAST
+        LEFT JOIN complaints c ON c.officer_id = o.officer_id
+        GROUP BY o.officer_id, w.ward_name
+        ORDER BY total_resolved DESC NULLS LAST
         """
     )
     if not rows:
@@ -252,13 +278,13 @@ async def export_officers_csv(
     return Response(
         content="\n".join(lines),
         media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=nagarmind_officers.csv"},
+        headers={"Content-Disposition": "attachment; filename=officers.csv"},
     )
 
 
 @router.get("/city/summary-card")
 async def summary_card(pool=Depends(get_db)):
-    """Public summary — for landing page / press release widget. No auth needed."""
+    """Public summary — no auth needed."""
     row = await pool.fetchrow(
         """
         SELECT

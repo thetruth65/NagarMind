@@ -10,14 +10,21 @@ router = APIRouter(tags=["officer"])
 async def my_performance(payload=Depends(require_officer), pool=Depends(get_db)):
     officer_id = payload["sub"]
     row = await pool.fetchrow(
-        """SELECT o.*,
+        """SELECT o.officer_id, o.employee_id, o.name, o.email, o.phone_number,
+                  o.ward_id, o.designation, o.is_active, o.created_at,
                   COUNT(c.complaint_id) FILTER (WHERE c.status NOT IN ('resolved','closed')) AS open_count,
                   COUNT(c.complaint_id) FILTER (WHERE c.status IN ('resolved','closed')
                     AND c.resolved_at >= NOW() - INTERVAL '7 days') AS resolved_week,
+                  COUNT(c.complaint_id) FILTER (WHERE c.status IN ('resolved','closed')) AS total_resolved,
                   AVG(c.citizen_rating) FILTER (WHERE c.citizen_rating IS NOT NULL) AS avg_rating_live,
-                  COUNT(c.complaint_id) FILTER (WHERE c.sla_breached = TRUE) AS breaches_total
+                  COUNT(c.complaint_id) FILTER (WHERE c.sla_breached = TRUE) AS breaches_total,
+                  ROUND(
+                    100.0 * COUNT(c.complaint_id) FILTER (WHERE c.status IN ('resolved','closed') AND c.sla_breached = FALSE)
+                    / NULLIF(COUNT(c.complaint_id) FILTER (WHERE c.status IN ('resolved','closed')), 0),
+                    1
+                  ) AS sla_compliance_rate
            FROM officers o
-           LEFT JOIN complaints c ON c.assigned_officer_id = o.officer_id
+           LEFT JOIN complaints c ON c.officer_id = o.officer_id
            WHERE o.officer_id = $1
            GROUP BY o.officer_id""",
         officer_id,
@@ -56,10 +63,10 @@ async def ward_complaints_map(
 
     rows = await pool.fetch(
         """SELECT complaint_id, title, category, urgency, status,
-                  location_lat, location_lng, location_address, created_at
+                  latitude, longitude, address, created_at
            FROM complaints
            WHERE ward_id=$1 AND status NOT IN ('resolved','closed')
-             AND location_lat IS NOT NULL
+             AND latitude IS NOT NULL
            ORDER BY created_at DESC""",
         officer["ward_id"],
     )
@@ -74,12 +81,27 @@ async def ward_leaderboard(
         "SELECT ward_id FROM officers WHERE officer_id=$1", payload["sub"]
     )
     rows = await pool.fetch(
-        """SELECT o.officer_id, o.full_name, o.designation,
-                  o.total_resolved, o.sla_compliance_rate, o.citizen_rating_avg,
-                  o.performance_score
+        """SELECT o.officer_id, o.name AS full_name, o.designation,
+                  COUNT(c.complaint_id) FILTER (WHERE c.status IN ('resolved','closed')) AS total_resolved,
+                  ROUND(
+                    100.0 * COUNT(c.complaint_id) FILTER (WHERE c.status IN ('resolved','closed') AND c.sla_breached = FALSE)
+                    / NULLIF(COUNT(c.complaint_id) FILTER (WHERE c.status IN ('resolved','closed')), 0),
+                    1
+                  ) AS sla_compliance_rate,
+                  AVG(c.citizen_rating) FILTER (WHERE c.citizen_rating IS NOT NULL) AS citizen_rating_avg,
+                  ROUND(
+                    (
+                      COALESCE(100.0 * COUNT(c.complaint_id) FILTER (WHERE c.status IN ('resolved','closed') AND c.sla_breached = FALSE)
+                        / NULLIF(COUNT(c.complaint_id) FILTER (WHERE c.status IN ('resolved','closed')), 0), 50)
+                      + COALESCE(AVG(c.citizen_rating) FILTER (WHERE c.citizen_rating IS NOT NULL) * 20, 50)
+                    ) / 2,
+                    1
+                  ) AS performance_score
            FROM officers o
+           LEFT JOIN complaints c ON c.officer_id = o.officer_id
            WHERE o.ward_id=$1 AND o.is_active=TRUE
-           ORDER BY o.performance_score DESC NULLS LAST""",
+           GROUP BY o.officer_id, o.name, o.designation
+           ORDER BY performance_score DESC NULLS LAST""",
         officer["ward_id"],
     )
     return {"leaderboard": [dict(r) for r in rows]}

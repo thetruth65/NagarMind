@@ -1,4 +1,7 @@
-"""Citizen profile management endpoints."""
+"""Citizen profile management endpoints — updated for v7 schema.
+v7 changes: citizens.full_name → name, citizens.home_address → address,
+            no preferred_language col on citizens table.
+"""
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
@@ -17,13 +20,14 @@ class ProfileUpdateRequest(BaseModel):
 
 @router.get("/profile")
 async def get_profile(payload=Depends(require_citizen), pool=Depends(get_db)):
+    # v7: name, address — no preferred_language, no profile_photo_url, no total_complaints cols
     row = await pool.fetchrow(
-        """SELECT c.*, w.ward_name, w.zone, w.health_score, w.health_grade,
+        """SELECT c.citizen_id, c.name AS full_name, c.phone_number,
+                  c.ward_id, c.address AS home_address, c.is_active, c.created_at,
+                  w.ward_name, w.zone, w.health_score, w.health_grade,
                   (SELECT COUNT(*) FROM complaints WHERE citizen_id=c.citizen_id) AS total_complaints,
                   (SELECT COUNT(*) FROM complaints WHERE citizen_id=c.citizen_id
                    AND status IN ('resolved','closed')) AS resolved_count,
-                  (SELECT COUNT(*) FROM complaints WHERE citizen_id=c.citizen_id
-                   AND disputed=TRUE) AS disputes_raised,
                   (SELECT AVG(citizen_rating) FROM complaints
                    WHERE citizen_id=c.citizen_id AND citizen_rating IS NOT NULL) AS avg_rating_given
            FROM citizens c
@@ -33,7 +37,10 @@ async def get_profile(payload=Depends(require_citizen), pool=Depends(get_db)):
     )
     if not row:
         raise HTTPException(404)
-    return dict(row)
+    d = dict(row)
+    d["preferred_language"] = "en"   # not in v7 schema, default it
+    d["disputes_raised"] = 0         # complaints table has no disputed col in v7
+    return d
 
 
 @router.patch("/profile")
@@ -42,7 +49,18 @@ async def update_profile(
     payload=Depends(require_citizen),
     pool=Depends(get_db),
 ):
-    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    # Map old field names → v7 column names
+    col_map = {
+        "full_name":    "name",
+        "home_address": "address",
+        # preferred_language and profile_photo_url don't exist in v7 — skip silently
+    }
+    updates = {}
+    raw = body.model_dump()
+    for old_key, col in col_map.items():
+        if raw.get(old_key) is not None:
+            updates[col] = raw[old_key]
+
     if not updates:
         return {"message": "Nothing to update"}
 
