@@ -20,7 +20,6 @@
 # import logging
 # from datetime import datetime, timezone
 # from typing import Optional
-# from uuid import uuid4
 
 # from app.core.config import settings
 # from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
@@ -56,33 +55,20 @@
 
 #     ward_id = citizen["ward_id"]
 
-#     import hashlib
-#     def geo_hash(lat: float, lng: float) -> str:
-#         return hashlib.md5(f"{round(lat,4)},{round(lng,4)}".encode()).hexdigest()[:8]
-
-#     location_hash = geo_hash(body.location_lat, body.location_lng)
-
 #     complaint_id = await pool.fetchval(
 #         """INSERT INTO complaints
-#            (citizen_id, ward_id, title, description, original_language,
-#             category, location_lat, location_lng, location_address,
-#             location_hash, photo_urls, audio_url, voice_transcript,
+#            (citizen_id, ward_id, title, description,
+#             category, latitude, longitude, address,
+#             photo_urls, voice_transcript,
 #             status, submitted_at)
-#            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'submitted',NOW())
+#            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'submitted',NOW())
 #            RETURNING complaint_id""",
 #         citizen_id, ward_id,
-#         body.title, body.description, body.original_language,
+#         body.title, body.description,
 #         body.category,
 #         body.location_lat, body.location_lng, body.location_address,
-#         location_hash,
 #         body.photos or [],
-#         body.voice_audio_url,
 #         body.voice_transcript,
-#     )
-
-#     await pool.execute(
-#         "UPDATE citizens SET total_complaints = total_complaints + 1 WHERE citizen_id=$1",
-#         citizen_id
 #     )
 
 #     background_tasks.add_task(run_pipeline, pool, str(complaint_id))
@@ -99,7 +85,7 @@
 # async def my_complaints(
 #     status: Optional[str] = Query(None),
 #     page: int = Query(1, ge=1),
-#     limit: int = Query(20, le=50),
+#     limit: int = Query(20, le=200),
 #     payload=Depends(require_citizen),
 #     pool=Depends(get_db),
 # ):
@@ -115,11 +101,11 @@
 #     rows = await pool.fetch(
 #         f"""SELECT c.*,
 #                    w.ward_name,
-#                    o.full_name AS officer_name,
+#                    o.name AS officer_name,
 #                    EXTRACT(EPOCH FROM (c.sla_deadline - NOW())) AS sla_remaining_seconds
 #             FROM complaints c
 #             LEFT JOIN wards w ON c.ward_id = w.ward_id
-#             LEFT JOIN officers o ON c.assigned_officer_id = o.officer_id
+#             LEFT JOIN officers o ON c.officer_id = o.officer_id
 #             {where}
 #             ORDER BY c.created_at DESC
 #             LIMIT {limit} OFFSET {offset}""",
@@ -143,14 +129,14 @@
 #     status: Optional[str] = Query(None),
 #     urgency: Optional[str] = Query(None),
 #     page: int = Query(1, ge=1),
-#     limit: int = Query(20, le=50),
+#     limit: int = Query(20, le=200),
 #     payload=Depends(require_officer),
 #     pool=Depends(get_db),
 # ):
 #     offset = (page - 1) * limit
 #     officer_id = payload["sub"]
 
-#     conditions = ["c.assigned_officer_id=$1"]
+#     conditions = ["c.officer_id=$1"]
 #     params: list = [officer_id]
 
 #     if status:
@@ -165,7 +151,7 @@
 #     rows = await pool.fetch(
 #         f"""SELECT c.*,
 #                    w.ward_name,
-#                    ci.full_name AS citizen_name,
+#                    ci.name AS citizen_name,
 #                    ci.phone_number AS citizen_phone,
 #                    EXTRACT(EPOCH FROM (c.sla_deadline - NOW())) AS sla_remaining_seconds
 #             FROM complaints c
@@ -242,9 +228,6 @@
 
 
 # # ─── TRANSCRIBE AUDIO ─────────────────────────────────────────────────────────
-# # Handles BOTH cases:
-# #   1. audio_url is a base64 data URI  (new flow, no R2)
-# #   2. audio_url is an https:// URL    (legacy, tries to download)
 # @router.post("/transcribe-url")
 # async def transcribe_audio_url(
 #     audio_url: str,
@@ -260,21 +243,17 @@
 #     import base64, os, tempfile, httpx
 #     from groq import Groq
 
-#     #groq_key = os.getenv("GROQ_API_KEY", "")
 #     groq_key = settings.GROQ_API_KEY
 #     if not groq_key:
 #         raise HTTPException(500, "GROQ_API_KEY not configured on server")
 
-#     # ── Decode audio bytes ────────────────────────────────────────────────────
 #     audio_bytes: bytes = b""
 #     content_type = "audio/webm"
 #     ext = "webm"
 
 #     if audio_url.startswith("data:"):
-#         # Base64 data URI: data:audio/webm;base64,AAAA...
 #         try:
 #             header, b64data = audio_url.split(",", 1)
-#             # Extract mime type: data:audio/webm;base64 → audio/webm
 #             mime = header.split(":")[1].split(";")[0]
 #             content_type = mime
 #             ext_map = {
@@ -288,7 +267,6 @@
 #             raise HTTPException(400, f"Invalid base64 data URI: {e}")
 
 #     elif audio_url.startswith("http"):
-#         # Legacy URL download (may fail if R2 perms broken)
 #         try:
 #             async with httpx.AsyncClient(timeout=20) as client:
 #                 r = await client.get(audio_url)
@@ -303,7 +281,6 @@
 #     if len(audio_bytes) < 500:
 #         raise HTTPException(400, "Audio too short or empty — please speak for at least 1 second")
 
-#     # ── Transcribe via Groq Whisper ───────────────────────────────────────────
 #     with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as tmp:
 #         tmp.write(audio_bytes)
 #         tmp_path = tmp.name
@@ -315,7 +292,7 @@
 #         with open(tmp_path, "rb") as f:
 #             result = client.audio.transcriptions.create(
 #                 file=(f"voice.{ext}", f, content_type),
-#                 model="whisper-large-v3-turbo",
+#                 model="whisper-large-v3",
 #                 language=lang,
 #                 response_format="text",
 #             )
@@ -349,14 +326,14 @@
 #     row = await pool.fetchrow(
 #         """SELECT c.*,
 #                   w.ward_name,
-#                   o.full_name AS officer_name,
+#                   o.name AS officer_name,
 #                   o.designation AS officer_designation,
 #                   o.phone_number AS officer_phone,
-#                   ci.full_name AS citizen_name,
+#                   ci.name AS citizen_name,
 #                   EXTRACT(EPOCH FROM (c.sla_deadline - NOW())) AS sla_remaining_seconds
 #            FROM complaints c
 #            LEFT JOIN wards w ON c.ward_id = w.ward_id
-#            LEFT JOIN officers o ON c.assigned_officer_id = o.officer_id
+#            LEFT JOIN officers o ON c.officer_id = o.officer_id
 #            LEFT JOIN citizens ci ON c.citizen_id = ci.citizen_id
 #            WHERE c.complaint_id=$1""",
 #         complaint_id,
@@ -389,17 +366,17 @@
 #     row = await pool.fetchrow(
 #         """SELECT
 #                c.complaint_id, c.title, c.category, c.urgency, c.status,
-#                c.location_address, c.location_lat, c.location_lng,
+#                c.address, c.latitude, c.longitude,
 #                c.created_at, c.updated_at, c.resolved_at,
 #                c.sla_deadline, c.sla_breached, c.ai_summary,
 #                c.resolution_note, c.photo_urls,
 #                w.ward_name,
-#                o.full_name AS officer_name,
+#                o.name AS officer_name,
 #                o.designation AS officer_designation,
 #                EXTRACT(EPOCH FROM (c.sla_deadline - NOW())) AS sla_remaining_seconds
 #            FROM complaints c
 #            LEFT JOIN wards w ON c.ward_id = w.ward_id
-#            LEFT JOIN officers o ON c.assigned_officer_id = o.officer_id
+#            LEFT JOIN officers o ON c.officer_id = o.officer_id
 #            WHERE c.complaint_id=$1""",
 #         complaint_id,
 #     )
@@ -437,25 +414,9 @@
 #     old_status = complaint["status"]
 
 #     update_fields = {"status": body.status, "updated_at": datetime.now(timezone.utc)}
-#     if body.status == "acknowledged" and not complaint["acknowledged_at"]:
-#         update_fields["acknowledged_at"] = datetime.now(timezone.utc)
+#     # NOTE: acknowledged_at and disputed columns removed in v7 — skip those updates
 #     if body.status == "resolved" and not complaint["resolved_at"]:
 #         update_fields["resolved_at"] = datetime.now(timezone.utc)
-#         await pool.execute(
-#             """UPDATE officers SET
-#                total_resolved = total_resolved + 1,
-#                sla_compliance_rate = (
-#                  SELECT ROUND(
-#                    COUNT(*) FILTER (WHERE NOT sla_breached)::decimal /
-#                    NULLIF(COUNT(*), 0) * 100, 2
-#                  )
-#                  FROM complaints
-#                  WHERE assigned_officer_id=$1
-#                    AND status IN ('resolved','closed')
-#                )
-#                WHERE officer_id=$1""",
-#             officer_id,
-#         )
 
 #     if body.notes:
 #         update_fields["resolution_note"] = body.notes
@@ -474,14 +435,14 @@
 
 #     await pool.execute(
 #         """INSERT INTO complaint_status_history
-#            (complaint_id, old_status, new_status, changed_by_id, changed_by_role, note)
+#            (complaint_id, old_status, new_status, changed_by, changed_by_role, note)
 #            VALUES ($1,$2,$3,$4,'officer',$5)""",
 #         complaint_id, old_status, body.status, officer_id, body.notes,
 #     )
 
 #     from app.services.notification_service import notify_citizen
 #     citizen = await pool.fetchrow(
-#         "SELECT citizen_id, phone_number, preferred_language FROM citizens WHERE citizen_id=$1",
+#         "SELECT citizen_id, phone_number FROM citizens WHERE citizen_id=$1",
 #         complaint["citizen_id"],
 #     )
 #     if citizen:
@@ -499,7 +460,7 @@
 #             f"complaint_{body.status}",
 #             f"Complaint {body.status.replace('_', ' ').title()}",
 #             status_messages.get(body.status, f"Status updated to {body.status}"),
-#             language=citizen["preferred_language"],
+#             language="en",
 #         )
 
 #     from app.services.ward_health_service import recalculate_ward_health
@@ -534,18 +495,7 @@
 #         body.rating, body.feedback, complaint_id,
 #     )
 
-#     if complaint["assigned_officer_id"]:
-#         await pool.execute(
-#             """UPDATE officers SET
-#                citizen_rating_avg = (
-#                  SELECT ROUND(AVG(citizen_rating)::decimal, 3)
-#                  FROM complaints
-#                  WHERE assigned_officer_id=$1 AND citizen_rating IS NOT NULL
-#                )
-#                WHERE officer_id=$1""",
-#             complaint["assigned_officer_id"],
-#         )
-
+#     # officer citizen_rating_avg is computed live — no stored column to update
 #     return {"success": True, "rating": body.rating}
 
 
@@ -567,32 +517,30 @@
 #         raise HTTPException(404, "Complaint not found or not yours")
 #     if complaint["status"] not in ("resolved", "closed"):
 #         raise HTTPException(400, "Can only dispute resolved/closed complaints")
-#     if complaint["disputed"]:
-#         raise HTTPException(400, "Already disputed")
 
 #     existing_photos = complaint["photo_urls"] or []
 #     all_photos = existing_photos + (body.dispute_photos or [])
 
 #     await pool.execute(
 #         """UPDATE complaints SET
-#            disputed=TRUE, dispute_reason=$1, status='disputed',
+#            status='disputed', resolution_note=$1,
 #            photo_urls=$2, updated_at=NOW()
 #            WHERE complaint_id=$3""",
-#         body.reason, all_photos, complaint_id,
+#         f"Disputed: {body.reason}", all_photos, complaint_id,
 #     )
 
 #     await pool.execute(
 #         """INSERT INTO complaint_status_history
-#            (complaint_id, old_status, new_status, changed_by_id, changed_by_role, note)
+#            (complaint_id, old_status, new_status, changed_by, changed_by_role, note)
 #            VALUES ($1,$2,'disputed',$3,'citizen',$4)""",
 #         complaint_id, complaint["status"], citizen_id, f"Dispute: {body.reason}",
 #     )
 
-#     if complaint["assigned_officer_id"]:
+#     if complaint["officer_id"]:
 #         from app.services.notification_service import notify_officer
 #         await notify_officer(
 #             pool,
-#             str(complaint["assigned_officer_id"]),
+#             str(complaint["officer_id"]),
 #             complaint_id,
 #             "dispute_opened",
 #             "⚠️ Complaint Disputed",
@@ -611,10 +559,11 @@ Routes:
   GET    /api/complaints/notifications/mine       → My notifications
   POST   /api/complaints/notifications/read-all   → Mark all read
   PATCH  /api/complaints/notifications/:id/read   → Mark one read
-  POST   /api/complaints/transcribe-url           → Transcribe audio (base64 or URL)
+  POST   /api/complaints/transcribe-url           → Transcribe audio
   GET    /api/complaints/:id                      → Get complaint detail
   GET    /api/complaints/:id/public               → Public tracking (no auth)
   PATCH  /api/complaints/:id/status               → Update status (officer)
+  POST   /api/complaints/:id/assign               → Officer self-assigns a complaint
   POST   /api/complaints/:id/rate                 → Rate resolution (citizen)
   POST   /api/complaints/:id/dispute              → Dispute resolution (citizen)
 """
@@ -673,6 +622,32 @@ async def submit_complaint(
         body.voice_transcript,
     )
 
+    # Insert initial status history
+    await pool.execute(
+        """INSERT INTO complaint_status_history
+           (complaint_id, old_status, new_status, changed_by, changed_by_role, note)
+           VALUES ($1, NULL, 'submitted', $2, 'citizen', 'Complaint submitted by citizen')""",
+        str(complaint_id), citizen_id,
+    )
+
+    # Notify citizen immediately that submission was received
+    from app.services.notification_service import notify_citizen as _notify_citizen
+    citizen_row = await pool.fetchrow(
+        "SELECT phone_number FROM citizens WHERE citizen_id=$1", citizen_id
+    )
+    if citizen_row:
+        await _notify_citizen(
+            pool,
+            str(citizen_id),
+            citizen_row["phone_number"],
+            str(complaint_id),
+            "complaint_submitted",
+            "Complaint Submitted ✓",
+            f"Your complaint '{body.title}' has been received. We will classify and assign it shortly.",
+            language="en",
+            send_sms=True,
+        )
+
     background_tasks.add_task(run_pipeline, pool, str(complaint_id))
 
     return {
@@ -703,7 +678,11 @@ async def my_complaints(
     rows = await pool.fetch(
         f"""SELECT c.*,
                    w.ward_name,
+                   w.zone AS ward_zone,
                    o.name AS officer_name,
+                   o.email AS officer_email,
+                   o.phone_number AS officer_phone,
+                   o.designation AS officer_designation,
                    EXTRACT(EPOCH FROM (c.sla_deadline - NOW())) AS sla_remaining_seconds
             FROM complaints c
             LEFT JOIN wards w ON c.ward_id = w.ward_id
@@ -738,6 +717,13 @@ async def officer_inbox(
     offset = (page - 1) * limit
     officer_id = payload["sub"]
 
+    # Get officer's ward_id to also show unassigned complaints in the ward
+    officer_row = await pool.fetchrow(
+        "SELECT ward_id FROM officers WHERE officer_id=$1", officer_id
+    )
+    ward_id = officer_row["ward_id"] if officer_row else None
+
+    # Complaints assigned to this officer
     conditions = ["c.officer_id=$1"]
     params: list = [officer_id]
 
@@ -753,6 +739,7 @@ async def officer_inbox(
     rows = await pool.fetch(
         f"""SELECT c.*,
                    w.ward_name,
+                   w.zone AS ward_zone,
                    ci.name AS citizen_name,
                    ci.phone_number AS citizen_phone,
                    EXTRACT(EPOCH FROM (c.sla_deadline - NOW())) AS sla_remaining_seconds
@@ -771,11 +758,124 @@ async def officer_inbox(
         f"SELECT COUNT(*) FROM complaints c {where}", *params
     )
 
+    # Also fetch unassigned complaints in the officer's ward (so officer can self-assign)
+    unassigned = []
+    if ward_id and not status:
+        unassigned_rows = await pool.fetch(
+            """SELECT c.*,
+                      w.ward_name, w.zone AS ward_zone,
+                      ci.name AS citizen_name, ci.phone_number AS citizen_phone,
+                      EXTRACT(EPOCH FROM (c.sla_deadline - NOW())) AS sla_remaining_seconds
+               FROM complaints c
+               LEFT JOIN wards w ON c.ward_id = w.ward_id
+               LEFT JOIN citizens ci ON c.citizen_id = ci.citizen_id
+               WHERE c.ward_id=$1
+                 AND c.officer_id IS NULL
+                 AND c.status IN ('submitted','ai_classified')
+               ORDER BY
+                 CASE c.urgency WHEN 'critical' THEN 1 WHEN 'high' THEN 2 ELSE 3 END,
+                 c.created_at DESC
+               LIMIT 20""",
+            ward_id,
+        )
+        unassigned = [dict(r) for r in unassigned_rows]
+
     return {
         "complaints": [dict(r) for r in rows],
         "total": total,
         "page": page,
         "pages": (total + limit - 1) // limit,
+        "unassigned_in_ward": unassigned,
+    }
+
+
+# ─── OFFICER SELF-ASSIGN ──────────────────────────────────────────────────────
+@router.post("/{complaint_id}/assign")
+async def officer_self_assign(
+    complaint_id: str,
+    payload=Depends(require_officer),
+    pool=Depends(get_db),
+):
+    """Officer explicitly picks up an unassigned complaint from their ward."""
+    officer_id = payload["sub"]
+
+    complaint = await pool.fetchrow(
+        "SELECT * FROM complaints WHERE complaint_id=$1", complaint_id
+    )
+    if not complaint:
+        raise HTTPException(404, "Complaint not found")
+
+    # Verify officer's ward matches
+    officer = await pool.fetchrow(
+        "SELECT ward_id, name, email, phone_number, designation FROM officers WHERE officer_id=$1",
+        officer_id
+    )
+    if not officer:
+        raise HTTPException(404, "Officer not found")
+
+    if complaint["ward_id"] != officer["ward_id"]:
+        raise HTTPException(403, "This complaint is not in your ward")
+
+    if complaint["officer_id"]:
+        raise HTTPException(400, "Complaint already assigned to another officer")
+
+    from datetime import timedelta
+    from app.services.complaint_pipeline import SLA_TABLE
+    category   = complaint["category"] or "other"
+    urgency    = complaint["urgency"] or "medium"
+    sla_hours  = complaint["sla_hours"] or SLA_TABLE.get(category, SLA_TABLE["other"]).get(urgency, 72)
+    sla_deadline = datetime.now(timezone.utc) + timedelta(hours=sla_hours)
+
+    old_status = complaint["status"]
+
+    await pool.execute(
+        """UPDATE complaints SET
+           officer_id=$1, sla_deadline=$2, status='assigned', updated_at=NOW()
+           WHERE complaint_id=$3""",
+        officer_id, sla_deadline, complaint_id,
+    )
+
+    await pool.execute(
+        """INSERT INTO complaint_status_history
+           (complaint_id, old_status, new_status, changed_by, changed_by_role, note)
+           VALUES ($1,$2,'assigned',$3,'officer','Officer self-assigned this complaint')""",
+        complaint_id, old_status, officer_id,
+    )
+
+    # Notify officer of assignment
+    from app.services.notification_service import notify_officer, notify_citizen
+    await notify_officer(
+        pool, str(officer_id), complaint_id,
+        "self_assigned",
+        "✅ You have taken up this complaint",
+        f"SLA: {sla_hours}h — Deadline: {sla_deadline.strftime('%d %b %I:%M %p')}. Category: {category}.",
+    )
+
+    # Notify citizen that an officer has been assigned
+    citizen = await pool.fetchrow(
+        "SELECT citizen_id, phone_number FROM citizens WHERE citizen_id=$1",
+        complaint["citizen_id"],
+    )
+    if citizen:
+        await notify_citizen(
+            pool,
+            str(citizen["citizen_id"]),
+            citizen["phone_number"],
+            complaint_id,
+            "complaint_assigned",
+            "Officer Assigned 👷",
+            f"An officer ({officer['name']}) has been assigned to your complaint. "
+            f"Expected resolution by {sla_deadline.strftime('%d %b, %I:%M %p')}.",
+            language="en",
+            send_sms=True,
+            sms_data={"sla_deadline": sla_deadline.strftime("%d %b %I:%M%p")},
+        )
+
+    return {
+        "success": True,
+        "officer_name": officer["name"],
+        "sla_deadline": sla_deadline.isoformat(),
+        "sla_hours": sla_hours,
     }
 
 
@@ -787,9 +887,14 @@ async def my_notifications(
 ):
     user_id = payload["sub"]
     rows = await pool.fetch(
-        """SELECT * FROM notifications
-           WHERE user_id = $1
-           ORDER BY created_at DESC
+        """SELECT n.*,
+                  c.title AS complaint_title,
+                  c.category AS complaint_category,
+                  c.status AS complaint_status
+           FROM notifications n
+           LEFT JOIN complaints c ON n.complaint_id = c.complaint_id
+           WHERE n.user_id = $1
+           ORDER BY n.created_at DESC
            LIMIT 50""",
         user_id,
     )
@@ -836,12 +941,6 @@ async def transcribe_audio_url(
     language_hint: str | None = None,
     payload=Depends(require_any),
 ):
-    """
-    Transcribe audio. Accepts:
-      - base64 data URI: data:audio/webm;base64,AAAA...
-      - https:// URL (attempts download)
-    Uses Groq Whisper (free tier, multilingual).
-    """
     import base64, os, tempfile, httpx
     from groq import Groq
 
@@ -867,7 +966,6 @@ async def transcribe_audio_url(
             audio_bytes = base64.b64decode(b64data)
         except Exception as e:
             raise HTTPException(400, f"Invalid base64 data URI: {e}")
-
     elif audio_url.startswith("http"):
         try:
             async with httpx.AsyncClient(timeout=20) as client:
@@ -875,13 +973,12 @@ async def transcribe_audio_url(
                 r.raise_for_status()
                 audio_bytes = r.content
         except Exception as e:
-            raise HTTPException(400, f"Could not download audio from URL: {e}. "
-                                     f"Use base64 data URI instead.")
+            raise HTTPException(400, f"Could not download audio: {e}")
     else:
         raise HTTPException(400, "audio_url must be a base64 data URI or https:// URL")
 
     if len(audio_bytes) < 500:
-        raise HTTPException(400, "Audio too short or empty — please speak for at least 1 second")
+        raise HTTPException(400, "Audio too short")
 
     with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as tmp:
         tmp.write(audio_bytes)
@@ -890,7 +987,6 @@ async def transcribe_audio_url(
     try:
         client = Groq(api_key=groq_key)
         lang = language_hint[:2] if language_hint else None
-
         with open(tmp_path, "rb") as f:
             result = client.audio.transcriptions.create(
                 file=(f"voice.{ext}", f, content_type),
@@ -898,16 +994,8 @@ async def transcribe_audio_url(
                 language=lang,
                 response_format="text",
             )
-
         transcript = result if isinstance(result, str) else (result.text or "")
-        transcript = transcript.strip()
-        logger.info(f"Transcribed: {len(transcript)} chars, lang={lang}")
-
-        return {
-            "transcript": transcript,
-            "language":   language_hint,
-        }
-
+        return {"transcript": transcript.strip(), "language": language_hint}
     except Exception as e:
         logger.exception(f"Groq transcription failed: {e}")
         raise HTTPException(500, f"Transcription failed: {e}")
@@ -928,9 +1016,11 @@ async def get_complaint(
     row = await pool.fetchrow(
         """SELECT c.*,
                   w.ward_name,
+                  w.zone AS ward_zone,
                   o.name AS officer_name,
                   o.designation AS officer_designation,
                   o.phone_number AS officer_phone,
+                  o.email AS officer_email,
                   ci.name AS citizen_name,
                   EXTRACT(EPOCH FROM (c.sla_deadline - NOW())) AS sla_remaining_seconds
            FROM complaints c
@@ -969,12 +1059,17 @@ async def get_complaint_public(
         """SELECT
                c.complaint_id, c.title, c.category, c.urgency, c.status,
                c.address, c.latitude, c.longitude,
-               c.created_at, c.updated_at, c.resolved_at,
+               c.created_at, c.updated_at, c.resolved_at, c.submitted_at,
                c.sla_deadline, c.sla_breached, c.ai_summary,
                c.resolution_note, c.photo_urls,
+               c.citizen_rating,
+               c.ward_id,
                w.ward_name,
+               w.zone AS ward_zone,
                o.name AS officer_name,
                o.designation AS officer_designation,
+               o.phone_number AS officer_phone,
+               o.email AS officer_email,
                EXTRACT(EPOCH FROM (c.sla_deadline - NOW())) AS sla_remaining_seconds
            FROM complaints c
            LEFT JOIN wards w ON c.ward_id = w.ward_id
@@ -1016,7 +1111,6 @@ async def update_complaint_status(
     old_status = complaint["status"]
 
     update_fields = {"status": body.status, "updated_at": datetime.now(timezone.utc)}
-    # NOTE: acknowledged_at and disputed columns removed in v7 — skip those updates
     if body.status == "resolved" and not complaint["resolved_at"]:
         update_fields["resolved_at"] = datetime.now(timezone.utc)
 
@@ -1037,32 +1131,51 @@ async def update_complaint_status(
 
     await pool.execute(
         """INSERT INTO complaint_status_history
-           (complaint_id, old_status, new_status, changed_by_id, changed_by_role, note)
+           (complaint_id, old_status, new_status, changed_by, changed_by_role, note)
            VALUES ($1,$2,$3,$4,'officer',$5)""",
         complaint_id, old_status, body.status, officer_id, body.notes,
     )
 
-    from app.services.notification_service import notify_citizen
+    # Notify citizen + officer of status change
+    from app.services.notification_service import notify_citizen, notify_officer
     citizen = await pool.fetchrow(
         "SELECT citizen_id, phone_number FROM citizens WHERE citizen_id=$1",
         complaint["citizen_id"],
     )
+
+    status_messages = {
+        "acknowledged": "Your complaint has been acknowledged by the officer.",
+        "in_progress":  f"Work has started on your complaint. {body.notes or 'Officer is on-site.'}",
+        "resolved":     f"Your complaint has been resolved. {body.notes or ''} Please verify and rate.",
+        "closed":       "Your complaint has been closed. Thank you for using NagarMind.",
+    }
+
+    status_titles = {
+        "acknowledged": "Complaint Acknowledged 📋",
+        "in_progress":  "Work Started 🔧",
+        "resolved":     "Complaint Resolved ✅ — Please Rate",
+        "closed":       "Complaint Closed 🎉",
+    }
+
     if citizen:
-        status_messages = {
-            "acknowledged": "Your complaint has been acknowledged by the officer.",
-            "in_progress":  f"Work has started: {body.notes or 'Officer is on-site.'}",
-            "resolved":     f"Your complaint has been resolved. {body.notes or ''}",
-            "closed":       "Your complaint has been closed.",
-        }
         await notify_citizen(
             pool,
             str(citizen["citizen_id"]),
             citizen["phone_number"],
             complaint_id,
             f"complaint_{body.status}",
-            f"Complaint {body.status.replace('_', ' ').title()}",
+            status_titles.get(body.status, f"Status: {body.status.replace('_', ' ').title()}"),
             status_messages.get(body.status, f"Status updated to {body.status}"),
             language="en",
+        )
+
+    # Notify officer of their own status update (confirmation)
+    if body.status == "resolved":
+        await notify_officer(
+            pool, str(officer_id), complaint_id,
+            "complaint_resolved",
+            "✅ Resolution Submitted",
+            f"Complaint marked resolved. Waiting for citizen verification. {body.notes or ''}",
         )
 
     from app.services.ward_health_service import recalculate_ward_health
@@ -1093,11 +1206,45 @@ async def rate_complaint(
         raise HTTPException(400, "Already rated")
 
     await pool.execute(
-        "UPDATE complaints SET citizen_rating=$1, citizen_feedback=$2, status='closed' WHERE complaint_id=$3",
+        "UPDATE complaints SET citizen_rating=$1, citizen_feedback=$2, status='closed', updated_at=NOW() WHERE complaint_id=$3",
         body.rating, body.feedback, complaint_id,
     )
 
-    # officer citizen_rating_avg is computed live — no stored column to update
+    # Add status history entry for close
+    await pool.execute(
+        """INSERT INTO complaint_status_history
+           (complaint_id, old_status, new_status, changed_by, changed_by_role, note)
+           VALUES ($1,'resolved','closed',$2,'citizen','Citizen rated and closed the complaint')""",
+        complaint_id, citizen_id,
+    )
+
+    # Notify officer that citizen verified the resolution
+    if complaint["officer_id"]:
+        stars = "⭐" * body.rating
+        from app.services.notification_service import notify_officer
+        await notify_officer(
+            pool, str(complaint["officer_id"]), complaint_id,
+            "complaint_rated",
+            f"Complaint Rated {stars}",
+            f"Citizen gave {body.rating}/5 stars. "
+            + (f'Feedback: "{body.feedback}"' if body.feedback else "Complaint fully closed."),
+        )
+
+    # Notify citizen of closure
+    citizen = await pool.fetchrow(
+        "SELECT phone_number FROM citizens WHERE citizen_id=$1", citizen_id
+    )
+    if citizen:
+        from app.services.notification_service import notify_citizen
+        await notify_citizen(
+            pool, str(citizen_id), citizen["phone_number"],
+            complaint_id,
+            "complaint_closed",
+            "Complaint Closed 🎉",
+            f"Thank you for rating! Your complaint is now fully closed.",
+            language="en",
+        )
+
     return {"success": True, "rating": body.rating}
 
 
@@ -1133,7 +1280,7 @@ async def dispute_complaint(
 
     await pool.execute(
         """INSERT INTO complaint_status_history
-           (complaint_id, old_status, new_status, changed_by_id, changed_by_role, note)
+           (complaint_id, old_status, new_status, changed_by, changed_by_role, note)
            VALUES ($1,$2,'disputed',$3,'citizen',$4)""",
         complaint_id, complaint["status"], citizen_id, f"Dispute: {body.reason}",
     )
