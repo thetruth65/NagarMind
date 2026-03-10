@@ -214,8 +214,10 @@ async def upload_audio(
     # Transcribe via Groq Whisper
     transcript = ""
     transcription_error = None
-
-    groq_key = os.getenv("GROQ_API_KEY", "")
+    from app.core.config import settings
+    
+    groq_key = settings.GROQ_API_KEY
+    #groq_key = os.getenv("GROQ_API_KEY", "")
     if groq_key:
         try:
             from groq import Groq

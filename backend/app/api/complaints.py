@@ -674,6 +674,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from uuid import uuid4
 
+from app.core.config import settings
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from app.core.database import get_db
 from app.middleware.auth_middleware import require_citizen, require_officer, require_any
@@ -911,7 +912,8 @@ async def transcribe_audio_url(
     import base64, os, tempfile, httpx
     from groq import Groq
 
-    groq_key = os.getenv("GROQ_API_KEY", "")
+    #groq_key = os.getenv("GROQ_API_KEY", "")
+    groq_key = settings.GROQ_API_KEY
     if not groq_key:
         raise HTTPException(500, "GROQ_API_KEY not configured on server")
 
