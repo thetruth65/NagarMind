@@ -7,7 +7,7 @@ import hashlib
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from app.services.gemini_service import classify_complaint, generate_officer_summary
+from app.services.gemini_service import classify_complaint, generate_officer_summary, translate_with_gemini
 from app.services.sarvam_service import translate_single
 from app.services.notification_service import notify_citizen, notify_officer
 from app.services.ward_health_service import recalculate_ward_health
@@ -54,7 +54,9 @@ async def run_pipeline(pool, complaint_id: str):
         desc = complaint["description"]
         lang = complaint["original_language"]
         if lang != "en":
-            desc = await translate_single(desc, "en", lang)
+            #desc = await translate_single(desc, "en", lang)
+            desc = await translate_with_gemini(desc, lang, "en")
+
             await pool.execute(
                 "UPDATE complaints SET description_translated=$1 WHERE complaint_id=$2",
                 desc, complaint_id,

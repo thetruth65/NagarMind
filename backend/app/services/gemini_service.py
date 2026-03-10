@@ -159,3 +159,27 @@ Max 250 words. Professional, honest, specific."""
         return await gemini_generate(prompt)
     except Exception:
         return f"Week summary for {ward_name}: {stats.get('resolved', 0)} complaints resolved."
+
+
+async def translate_with_gemini(text: str, source_lang: str, target_lang: str = "en") -> str:
+    """Translate text using Gemini. More reliable than Sarvam for Indian→English."""
+    if source_lang == target_lang:
+        return text
+    
+    lang_names = {
+        "hi": "Hindi", "bn": "Bengali", "ta": "Tamil", "te": "Telugu",
+        "mr": "Marathi", "gu": "Gujarati", "kn": "Kannada", "ml": "Malayalam",
+        "pa": "Punjabi", "or": "Odia", "en": "English",
+    }
+    src_name = lang_names.get(source_lang, source_lang)
+    tgt_name = lang_names.get(target_lang, target_lang)
+
+    prompt = f"""Translate the following {src_name} text to {tgt_name}.
+Return ONLY the translated text, no explanation, no quotes.
+
+Text: {text}"""
+    try:
+        return (await gemini_generate(prompt)).strip()
+    except Exception as e:
+        logger.error(f"Gemini translation failed: {e}")
+        return text  # fallback to original

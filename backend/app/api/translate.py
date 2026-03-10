@@ -53,9 +53,22 @@ async def translate_batch(body: TranslateBatchRequest):
     return {"translations": translated, "target_language": body.target_language}
 
 
+# @router.post("/single")
+# async def translate_one(body: TranslateSingleRequest):
+#     """Translate a single string."""
+#     def to_short(code: str) -> str:
+#         short = code.split("-")[0]
+#         return "or" if short == "od" else short
+
+#     target_short = to_short(body.target_language)
+#     source_short = to_short(body.source_language)
+
+#     result = await translate_single(body.text, target_short, source_short)
+#     return {"translated": result, "target_language": body.target_language}
+
+# In translate_one(), after the Sarvam call fails or returns original:
 @router.post("/single")
 async def translate_one(body: TranslateSingleRequest):
-    """Translate a single string."""
     def to_short(code: str) -> str:
         short = code.split("-")[0]
         return "or" if short == "od" else short
@@ -63,5 +76,12 @@ async def translate_one(body: TranslateSingleRequest):
     target_short = to_short(body.target_language)
     source_short = to_short(body.source_language)
 
+    # Try Sarvam first
     result = await translate_single(body.text, target_short, source_short)
+    
+    # If Sarvam returned unchanged text (likely failed), try Gemini
+    if result == body.text and source_short != target_short:
+        from app.services.gemini_service import translate_with_gemini
+        result = await translate_with_gemini(body.text, source_short, target_short)
+    
     return {"translated": result, "target_language": body.target_language}

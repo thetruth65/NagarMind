@@ -98,7 +98,10 @@ async def translate_text(
     """
     if not texts:
         return texts
-    if source_lang == target_lang or target_lang == "en":
+    # if source_lang == target_lang or target_lang == "en":
+    #     return texts
+    # AFTER (correct):
+    if source_lang == target_lang:
         return texts
 
     src_code = LANGUAGE_MAP.get(source_lang, "en-IN")
@@ -121,7 +124,10 @@ async def translate_single(
     source_lang: str = "en",
 ) -> str:
     """Translate a single string. Returns original on failure."""
-    if source_lang == target_lang or target_lang == "en":
+    # if source_lang == target_lang or target_lang == "en":
+    #     return text
+    # AFTER (correct):
+    if source_lang == target_lang:
         return text
     src_code = LANGUAGE_MAP.get(source_lang, "en-IN")
     tgt_code = LANGUAGE_MAP.get(target_lang, "hi-IN")
