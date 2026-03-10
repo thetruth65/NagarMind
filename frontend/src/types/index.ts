@@ -154,7 +154,8 @@ export type Language = {
   name: string
   nativeName: string
   sarvam?: string
-  script: 'latin' | 'devanagari' | 'bengali' | 'tamil' | 'telugu' | 'gujarati' | 'kannada' | 'malayalam' | 'gurmukhi' | 'odia'
+  script: 'latin' | 'devanagari' | 'bengali' | 'tamil' | 'telugu' | 'gujarati' | 'kannada' | 'malayalam' | 'gurmukhi' | 'odia',
+  sttSupported?: boolean // ✅ FIXED: Added this property
 }
 
 export const SUPPORTED_LANGUAGES: Language[] = [

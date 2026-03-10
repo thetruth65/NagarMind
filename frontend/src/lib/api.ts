@@ -121,7 +121,7 @@ export const complaintsAPI = {
   // Citizen
   submit:          (data: object)         => api.post('/api/complaints/', data),
   track:           (id: string)           => api.get(`/api/complaints/track/${id}`),
-  mine:            (params?: object)      => api.get('/api/complaints/mine', { params }),
+  mine:            (params?: object)      => api.get('/api/complaints/my', { params }),
   rate:            (id: string, data: object) => api.post(`/api/complaints/${id}/rate`, data),
   dispute:         (id: string, data: object) => api.post(`/api/complaints/${id}/dispute`, data),
 

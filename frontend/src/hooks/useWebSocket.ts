@@ -110,7 +110,10 @@ export function useWebSocket(onMessage: (msg: WSMessage) => void) {
       clearTimeout(reconnectTimer.current)
       if (ws.current) {
         ws.current.onclose = null  // prevent retry on intentional teardown
-        ws.current.close(1000, 'component unmounted')
+        // ✅ FIX: Only close if fully OPEN to prevent the console error
+        if (ws.current.readyState === WebSocket.OPEN) {
+          ws.current.close(1000, 'component unmounted')
+        }
         ws.current = null
       }
     }

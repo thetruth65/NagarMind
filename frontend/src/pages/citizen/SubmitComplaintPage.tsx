@@ -13,6 +13,7 @@ import { CATEGORY_CONFIG, SUPPORTED_LANGUAGES } from '@/types'
 import toast from 'react-hot-toast'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import axios from 'axios'
 
 delete (L.Icon.Default.prototype as any)._getIconUrl
 L.Icon.Default.mergeOptions({
@@ -90,6 +91,7 @@ export function SubmitComplaintPage() {
   const langMeta = SUPPORTED_LANGUAGES.find(l => l.code === lang)
   const isNonEnglish = lang !== 'en'
 
+  
   // ── Map init ──────────────────────────────────────────────────────────────
   useEffect(() => {
     if (step === 3 && mapContainerRef.current && !mapRef.current) {
@@ -109,6 +111,15 @@ export function SubmitComplaintPage() {
         })
         mapRef.current = map; markerRef.current = marker
       }, 100)
+    }
+  }, [step])
+
+  // ✅ FIX: Ensure microphone is strictly disabled if user navigates away or changes steps
+  useEffect(() => {
+    return () => {
+      if (mediaRef.current && mediaRef.current.stream) {
+        mediaRef.current.stream.getTracks().forEach(t => t.stop())
+      }
     }
   }, [step])
 
@@ -178,7 +189,9 @@ export function SubmitComplaintPage() {
           // Upload audio to R2
           const { data: ps } = await uploadAPI.presign('voice.webm', 'audio/webm', 'complaints')
           if (ps.upload_url) {
-            await fetch(ps.upload_url, { method: 'PUT', body: blob, headers: { 'Content-Type': 'audio/webm' } })
+            // await (ps.upload_url, { method: 'PUT', body: blob, headers: { 'Content-Type': 'audio/webm' } })
+            await axios.put(ps.upload_url, { method: 'PUT', body: blob, headers: { 'Content-Type': 'audio/webm' } })
+            
           }
           const voiceUrl = ps.public_url
           setAudioUrl(voiceUrl)
@@ -415,7 +428,7 @@ export function SubmitComplaintPage() {
                   </div>
                 </div>
 
-                <motion.button whileTap={{ scale: 0.95 }}
+                <motion.button type="button" whileTap={{ scale: 0.95 }}
                   onClick={isRecording ? stopRecording : startRecording}
                   disabled={transcribing || translating}
                   className={`w-full py-5 rounded-2xl flex flex-col items-center justify-center gap-2 font-semibold
