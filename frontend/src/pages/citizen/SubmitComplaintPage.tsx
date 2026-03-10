@@ -182,53 +182,58 @@ export function SubmitComplaintPage() {
       chunksRef.current = []
       mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data) }
       mr.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop())
-        setTranscribing(true)
-        try {
-          const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
-          // Upload audio to R2
-          const { data: ps } = await uploadAPI.presign('voice.webm', 'audio/webm', 'complaints')
-          if (ps.upload_url) {
-            // await (ps.upload_url, { method: 'PUT', body: blob, headers: { 'Content-Type': 'audio/webm' } })
-            await axios.put(ps.upload_url, { method: 'PUT', body: blob, headers: { 'Content-Type': 'audio/webm' } })
-            
-          }
-          const voiceUrl = ps.public_url
-          setAudioUrl(voiceUrl)
+      stream.getTracks().forEach(t => t.stop())
+      setTranscribing(true)
+      try {
+        const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
 
-          // STT — pass language hint
-          const { data } = await complaintsAPI.transcribeUrl(
-            voiceUrl,
-            langMeta?.sttSupported ? lang : undefined
-          )
-          const nativeText = data.transcript || ''
-          if (!nativeText) { toast.error('No speech detected. Try again.'); return }
+        const { data: ps } = await uploadAPI.uploadAudio(blob)
+        const voiceUrl = ps.public_url
 
-          setTranscript(nativeText)
-          setDescNative(nativeText)
-          // Auto-fill title from first sentence
-          const firstSentence = nativeText.split(/[।.!?\n]/)[0].trim()
-          if (firstSentence) setTitleNative(firstSentence.slice(0, 100))
-
-          toast.success('Voice captured! Translating to English...')
-
-          // Translate to English immediately
-          setTranslating(true)
-          const [enDesc, enTitle] = await Promise.all([
-            translateToEnglish(nativeText),
-            translateToEnglish(firstSentence.slice(0, 100)),
-          ])
-          setDescEn(enDesc)
-          setTitleEn(enTitle)
-          toast.success('Done! Review and edit below.')
-        } catch (e) {
-          toast.error('Transcription failed. Please type manually.')
-        } finally {
+        // ✅ Guard: if upload failed and returned no URL, skip transcription
+        if (!voiceUrl) {
+          toast.error('Audio upload failed. Please type your complaint manually.')
           setTranscribing(false)
-          setTranslating(false)
+          return
         }
+
+        setAudioUrl(voiceUrl)
+
+        // const { data } = await complaintsAPI.transcribeUrl(
+        //   voiceUrl,
+        //   langMeta?.sttSupported ? langMeta.sarvam : undefined   // ✅ sends 'hi-IN'
+        // )
+        // To this (lang is already 'hi', 'bn' etc — perfect for Whisper):
+        const { data } = await complaintsAPI.transcribeUrl(
+          voiceUrl,
+          lang !== 'en' ? lang : undefined
+        )
+        const nativeText = data.transcript || ''
+        if (!nativeText) { toast.error('No speech detected. Try again.'); return }
+
+        setTranscript(nativeText)
+        setDescNative(nativeText)
+        const firstSentence = nativeText.split(/[।.!?\n]/)[0].trim()
+        if (firstSentence) setTitleNative(firstSentence.slice(0, 100))
+
+        toast.success('Voice captured! Translating to English...')
+
+        setTranslating(true)
+        const [enDesc, enTitle] = await Promise.all([
+          translateToEnglish(nativeText),
+          translateToEnglish(firstSentence.slice(0, 100)),
+        ])
+        setDescEn(enDesc)
+        setTitleEn(enTitle)
+        toast.success('Done! Review and edit below.')
+      } catch (e) {
+        toast.error('Transcription failed. Please type manually.')
+      } finally {
+        setTranscribing(false)
+        setTranslating(false)
       }
-      mr.start(); mediaRef.current = mr; setIsRecording(true)
+    }
+      mr.start(100); mediaRef.current = mr; setIsRecording(true)
     } catch {
       toast.error('Microphone access denied')
     }

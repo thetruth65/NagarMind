@@ -96,10 +96,10 @@ export const wardsAPI = {
   get:       (id: number) => api.get(`/api/wards/${id}`),
   healthAll: () => api.get('/api/wards/health/all'),
   getDigest: (id: string) => api.get(`/api/wards/digest/${id}`),
-  // ✅ NEW: Fetch history for charts
   getDigestHistory: (type: string, entityId?: string) => 
     api.get('/api/wards/digests/history', { params: { type, entity_id: entityId } }),
 }
+
 // ── Translation ───────────────────────────────────────────────────────────────
 export const translateAPI = {
   batch:  (texts: string[], target_language: string, source_language = 'en-IN') =>
@@ -112,8 +112,18 @@ export const translateAPI = {
 export const uploadAPI = {
   presign: (filename: string, content_type: string, folder = 'complaints') =>
     api.post('/api/upload/presign', { filename, content_type, folder }),
+
   directUpload: (uploadUrl: string, file: File) =>
     axios.put(uploadUrl, file, { headers: { 'Content-Type': file.type } }),
+
+  // ✅ Routes audio through FastAPI backend to avoid R2 CORS issues on browser PUT
+  uploadAudio: (blob: Blob) => {
+    const form = new FormData()
+    form.append('file', new File([blob], 'voice.webm', { type: 'audio/webm' }))
+    return api.post('/api/upload/audio', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
 }
 
 // ── Complaints ────────────────────────────────────────────────────────────────
@@ -128,7 +138,6 @@ export const complaintsAPI = {
   // Officer
   updateStatus:    (id: string, data: object) => api.patch(`/api/complaints/${id}/status`, data),
   officerInbox:    (params?: object)      => api.get('/api/complaints/officer/inbox', { params }),
-  // `inbox` alias so OfficerDashboardPage & OfficerInboxPage compile without changes
   inbox:           (params?: object)      => api.get('/api/complaints/officer/inbox', { params }),
   officerDetail:   (id: string)           => api.get(`/api/complaints/officer/${id}`),
 
@@ -165,7 +174,6 @@ export const citizenAPI = {
   profile:    () => api.get('/api/citizen/profile'),
   update:     (data: object) => api.patch('/api/citizen/profile', data),
   stats:      () => api.get('/api/citizen/stats'),
-  // wardDigest accepts an optional wardId param — used by CitizenDigestPage & OfficerDigestPage
   wardDigest: (wardId?: number) =>
     api.get('/api/citizen/ward-digest', wardId ? { params: { ward_id: wardId } } : undefined),
 }

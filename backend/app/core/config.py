@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     OTP_MAX_ATTEMPTS: int = 3
     OTP_RESEND_COOLDOWN_SECONDS: int = 60
 
+    GROQ_API_KEY: str = ""
+
+
     @property
     def gemini_keys(self) -> List[str]:
         keys = [self.GEMINI_API_KEY_1, self.GEMINI_API_KEY_2, self.GEMINI_API_KEY_3, self.GEMINI_API_KEY_4]

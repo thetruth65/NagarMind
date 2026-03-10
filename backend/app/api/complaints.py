@@ -249,27 +249,78 @@ async def mark_notification_read(
     return {"success": True}
 
 
-# ─── TRANSCRIBE URL ───────────────────────────────────────────────────────────
-# Called by frontend after uploading audio to R2
+# # ─── TRANSCRIBE URL ───────────────────────────────────────────────────────────
+# # Called by frontend after uploading audio to R2
+# @router.post("/transcribe-url")
+# async def transcribe_audio_url(
+#     audio_url: str = Query(..., description="Public URL of the uploaded audio file"),
+#     language_hint: str = Query(None, description="Language hint e.g. 'hi', 'ta', 'bn'"),
+#     payload=Depends(require_citizen),
+# ):
+#     """
+#     Transcribe audio from a URL using Sarvam STT.
+#     Frontend uploads audio to R2, passes the public URL here.
+#     Returns transcript + detected language.
+#     """
+#     from app.services.sarvam_service import speech_to_text_from_url
+#     result = await speech_to_text_from_url(audio_url, language_hint)
+#     return {
+#         "transcript":    result["transcript"],
+#         "language_code": result["language_code"],
+#         "confidence":    result["confidence"],
+#     }
+
 @router.post("/transcribe-url")
 async def transcribe_audio_url(
-    audio_url: str = Query(..., description="Public URL of the uploaded audio file"),
-    language_hint: str = Query(None, description="Language hint e.g. 'hi', 'ta', 'bn'"),
-    payload=Depends(require_citizen),
+    audio_url: str,
+    language_hint: str | None = None,
+    payload=Depends(require_any),
 ):
     """
-    Transcribe audio from a URL using Sarvam STT.
-    Frontend uploads audio to R2, passes the public URL here.
-    Returns transcript + detected language.
+    Download audio from R2 URL and transcribe via Groq Whisper (free tier).
+    Replaces Sarvam STT which was returning empty transcripts.
     """
-    from app.services.sarvam_service import speech_to_text_from_url
-    result = await speech_to_text_from_url(audio_url, language_hint)
-    return {
-        "transcript":    result["transcript"],
-        "language_code": result["language_code"],
-        "confidence":    result["confidence"],
-    }
+    import httpx, tempfile, os
+    from groq import Groq
 
+    groq_key = os.getenv("GROQ_API_KEY")
+    if not groq_key:
+        raise HTTPException(500, "GROQ_API_KEY not configured")
+
+    # Download audio from R2
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.get(audio_url)
+            r.raise_for_status()
+            audio_bytes = r.content
+    except Exception as e:
+        raise HTTPException(400, f"Could not fetch audio: {e}")
+
+    if len(audio_bytes) < 1000:
+        raise HTTPException(400, "Audio file too small — no speech recorded")
+
+    # Write to temp file (Groq SDK needs a file object)
+    with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp:
+        tmp.write(audio_bytes)
+        tmp_path = tmp.name
+
+    try:
+        client = Groq(api_key=groq_key)
+        with open(tmp_path, "rb") as f:
+            result = client.audio.transcriptions.create(
+                file=("voice.webm", f, "audio/webm"),
+                model="whisper-large-v3-turbo",  # free, fast, multilingual
+                language=language_hint[:2] if language_hint else None,  # 'hi', 'bn' etc
+                response_format="text",
+            )
+        transcript = result if isinstance(result, str) else result.text
+        return {"transcript": transcript.strip(), "language": language_hint}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(500, f"Transcription failed: {e}")
+    finally:
+        os.unlink(tmp_path)
 
 """
 UPDATED ComplaintCreateRequest schema — add these fields to complaint_schemas.py:
