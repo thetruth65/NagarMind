@@ -894,7 +894,7 @@ async def transcribe_audio_url(
         with open(tmp_path, "rb") as f:
             result = client.audio.transcriptions.create(
                 file=(f"voice.{ext}", f, content_type),
-                model="whisper-large-v3-turbo",
+                model="whisper-large-v3",
                 language=lang,
                 response_format="text",
             )
