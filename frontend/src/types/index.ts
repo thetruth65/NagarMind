@@ -20,7 +20,6 @@ export interface Citizen {
   created_at: string
 }
 
-// Add this to src/types/index.ts
 export type Role = 'citizen' | 'officer' | 'admin'
 
 export interface Officer {
@@ -80,7 +79,7 @@ export interface Complaint {
   ward_name?: string
   officer_id?: string
   officer_name?: string
-  officer_designation?: string   // ← TrackComplaintPage
+  officer_designation?: string
 
   // Location
   location_address?: string
@@ -93,17 +92,17 @@ export interface Complaint {
   original_language?: string
 
   // AI
-  ai_summary?: string            // ← TrackComplaintPage
-  ai_category_confidence?: number // ← TrackComplaintPage
+  ai_summary?: string
+  ai_category_confidence?: number
 
   // SLA
   sla_deadline?: string
   sla_remaining_seconds?: number
 
   // Resolution
-  resolution_note?: string       // ← TrackComplaintPage
-  disputed?: boolean             // ← TrackComplaintPage
-  status_history?: StatusHistory[] // ← TrackComplaintPage
+  resolution_note?: string
+  disputed?: boolean
+  status_history?: StatusHistory[]
 
   // Timestamps
   created_at: string
@@ -118,7 +117,7 @@ export interface Notification {
   user_role: string
   title: string
   body: string
-  message?: string     // ← some backends return `message` instead of `body`
+  message?: string
   type: string
   is_read: boolean
   complaint_id?: string
@@ -131,7 +130,7 @@ export interface AuthState {
   role: 'citizen' | 'officer' | 'admin' | null
   userId: string | null
   fullName: string | null
-  wardId?: number | null          // ← OfficerDigestPage, CitizenDigestPage
+  wardId?: number | null
   preferredLanguage: string
   isLoading: boolean
   citizen: Citizen | null
@@ -155,7 +154,7 @@ export type Language = {
   nativeName: string
   sarvam?: string
   script: 'latin' | 'devanagari' | 'bengali' | 'tamil' | 'telugu' | 'gujarati' | 'kannada' | 'malayalam' | 'gurmukhi' | 'odia',
-  sttSupported?: boolean // ✅ FIXED: Added this property
+  sttSupported?: boolean
 }
 
 export const SUPPORTED_LANGUAGES: Language[] = [
@@ -181,19 +180,35 @@ export type CategoryConfig = {
 }
 
 export const CATEGORY_CONFIG: Record<string, CategoryConfig> = {
+  // ── PRIMARY KEYS — exactly what complaint_pipeline.py writes to DB ──────────
+  // These must match SLA_TABLE keys in complaint_pipeline.py:
+  //   pothole, garbage, sewage, water_supply, streetlight,
+  //   tree, stray_animals, encroachment, noise, other
   pothole:       { label: 'Pothole',           icon: '🕳️', color: 'bg-orange-100',  dept: 'Roads & Drainage'           },
-  garbage:       { label: 'Garbage',           icon: '🗑️', color: 'bg-green-100',   dept: 'Public Health & Sanitation'  },
-  sewage:        { label: 'Sewage',            icon: '💧', color: 'bg-blue-100',    dept: 'Public Health & Sanitation'  },
-  water:         { label: 'Water Supply',      icon: '🚰', color: 'bg-cyan-100',    dept: 'Water Supply'                },
-  streetlight:   { label: 'Street Light',      icon: '💡', color: 'bg-yellow-100',  dept: 'Roads & Drainage'            },
-  tree:          { label: 'Tree / Vegetation', icon: '🌳', color: 'bg-emerald-100', dept: 'Horticulture'                },
-  stray_animals: { label: 'Stray Animals',     icon: '🐕', color: 'bg-amber-100',   dept: 'Health Services'             },
-  encroachment:  { label: 'Encroachment',      icon: '🚧', color: 'bg-red-100',     dept: 'Planning & Development'      },
-  noise:         { label: 'Noise Pollution',   icon: '🔊', color: 'bg-purple-100',  dept: 'Public Health & Sanitation'  },
-  pollution:     { label: 'Pollution',         icon: '🌫️', color: 'bg-slate-100',   dept: 'Public Health & Sanitation'  },
-  road_damage:   { label: 'Road Damage',       icon: '🛣️', color: 'bg-stone-100',   dept: 'Roads & Drainage'            },
-  building:      { label: 'Building / Safety', icon: '🏗️', color: 'bg-rose-100',    dept: 'Building & Petrol'           },
-  other:         { label: 'Other',             icon: '📋', color: 'bg-gray-100',    dept: 'Administration'              },
+  garbage:       { label: 'Garbage',           icon: '🗑️', color: 'bg-green-100',   dept: 'Public Health & Sanitation' },
+  sewage:        { label: 'Sewage',            icon: '💧', color: 'bg-blue-100',    dept: 'Public Health & Sanitation' },
+  water_supply:  { label: 'Water Supply',      icon: '🚰', color: 'bg-cyan-100',    dept: 'Water Supply'               }, // ← WAS MISSING (was 'water')
+  streetlight:   { label: 'Street Light',      icon: '💡', color: 'bg-yellow-100',  dept: 'Roads & Drainage'           },
+  tree:          { label: 'Tree / Vegetation', icon: '🌳', color: 'bg-emerald-100', dept: 'Horticulture'               },
+  stray_animals: { label: 'Stray Animals',     icon: '🐕', color: 'bg-amber-100',   dept: 'Health Services'            },
+  encroachment:  { label: 'Encroachment',      icon: '🚧', color: 'bg-red-100',     dept: 'Planning & Development'     },
+  noise:         { label: 'Noise Pollution',   icon: '🔊', color: 'bg-purple-100',  dept: 'Public Health & Sanitation' },
+  other:         { label: 'Other',             icon: '📋', color: 'bg-gray-100',    dept: 'Administration'             },
+
+  // ── LEGACY / ALIAS KEYS — old category values still in DB or used elsewhere ─
+  // Kept so complaints seeded with old categories still display correctly
+  water:         { label: 'Water Supply',      icon: '🚰', color: 'bg-cyan-100',    dept: 'Water Supply'               },
+  pollution:     { label: 'Pollution',         icon: '🌫️', color: 'bg-slate-100',   dept: 'Public Health & Sanitation' },
+  road_damage:   { label: 'Road Damage',       icon: '🛣️', color: 'bg-stone-100',   dept: 'Roads & Drainage'           },
+  building:      { label: 'Building / Safety', icon: '🏗️', color: 'bg-rose-100',    dept: 'Building & Petrol'          },
+  // Old setup script categories — map to nearest equivalent
+  roads_and_footpaths:    { label: 'Roads',         icon: '🛣️', color: 'bg-stone-100',   dept: 'Roads & Drainage'           },
+  sanitation_and_garbage: { label: 'Sanitation',    icon: '🗑️', color: 'bg-green-100',   dept: 'Public Health & Sanitation' },
+  drainage_and_flooding:  { label: 'Drainage',      icon: '💧', color: 'bg-blue-100',    dept: 'Public Health & Sanitation' },
+  street_lighting:        { label: 'Street Light',  icon: '💡', color: 'bg-yellow-100',  dept: 'Roads & Drainage'           },
+  parks_and_gardens:      { label: 'Parks',         icon: '🌳', color: 'bg-emerald-100', dept: 'Horticulture'               },
+  illegal_construction:   { label: 'Encroachment',  icon: '🚧', color: 'bg-red-100',     dept: 'Planning & Development'     },
+  noise_and_pollution:    { label: 'Noise',         icon: '🔊', color: 'bg-purple-100',  dept: 'Public Health & Sanitation' },
 }
 
 // ── Status config ─────────────────────────────────────────────────────────────
@@ -219,15 +234,12 @@ export const STATUS_CONFIG: Record<string, StatusConfig> = {
 }
 
 // ── Urgency config ────────────────────────────────────────────────────────────
-// `border` is the Tailwind border-color class used for the left accent stripe
-// in ComplaintCard, OfficerInboxPage, OfficerComplaintDetailPage, TrackComplaintPage
-
 export type UrgencyConfig = {
   label: string
   icon: string
   color: string    // Tailwind text class
   bg: string       // Tailwind bg class
-  border: string   // Tailwind border-color class  e.g. 'border-red-500'
+  border: string   // Tailwind border-color class
   priority: number // 1 = highest
 }
 
@@ -294,14 +306,16 @@ export const MCD_ZONES = [
 export type MCDZone = typeof MCD_ZONES[number]
 
 // ── SLA hours ─────────────────────────────────────────────────────────────────
+// Keys match CATEGORY_CONFIG primary keys
 export const SLA_HOURS: Record<string, [number, number, number, number]> = {
+  pothole:       [24,  48,  96, 168],
   garbage:       [6,   12,  24,  48],
   sewage:        [6,   24,  48,  96],
-  water:         [6,   24,  72,  96],
-  pothole:       [24,  48,  96, 168],
+  water_supply:  [6,   24,  72,  96], // ← was 'water'
+  water:         [6,   24,  72,  96], // legacy alias
   streetlight:   [24,  72, 120, 240],
-  stray_animals: [12,  24,  72, 120],
   tree:          [24,  48, 120, 240],
+  stray_animals: [12,  24,  72, 120],
   encroachment:  [48,  96, 168, 336],
   noise:         [12,  24,  72, 120],
   pollution:     [24,  48,  96, 168],
