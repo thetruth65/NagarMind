@@ -11,6 +11,7 @@ import { formatDate, formatSLACountdown } from '@/lib/utils'
 import toast from 'react-hot-toast'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import { ComplaintChatBox } from '@/components/common/ComplaintChatBox'
 
 delete (L.Icon.Default.prototype as any)._getIconUrl
 L.Icon.Default.mergeOptions({
@@ -345,6 +346,18 @@ export function OfficerComplaintDetailPage() {
             </AnimatePresence>
           </motion.div>
         )}
+
+         {/* ─── Chat with Citizen ────────────────  */}
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18 }}
+          className="card p-4">
+          <p className="font-semibold text-slate-800 text-sm font-body mb-1 flex items-center gap-2">
+            💬 Chat with Citizen
+          </p>
+          <ComplaintChatBox
+            complaintId={id!}
+            citizenName={complaint.citizen_name}
+          />
+        </motion.div>
 
         {/* ── Resolution note (read-only) ── */}
         {complaint.resolution_note && (
