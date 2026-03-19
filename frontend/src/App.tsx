@@ -32,6 +32,10 @@ const AdminProfilePage = lazy(() => import('@/pages/admin/AdminProfilePage').the
 const DigestSelectionPage = lazy(() => import('@/pages/shared/DigestSelectionPage').then(m => ({ default: m.DigestSelectionPage })))
 const WeeklyDigestPage = lazy(() => import('@/pages/shared/WeeklyDigestPage').then(m => ({ default: m.WeeklyDigestPage })))
 
+
+const ChatIntakePage = lazy(() => import('@/pages/citizen/ChatIntakePage').then(m => ({ default: m.ChatIntakePage })))
+
+
 // Guards
 function CitizenGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, role } = useAuthStore()
@@ -70,7 +74,10 @@ export default function App() {
         {/* Citizen */}
         <Route path="/citizen/auth" element={<CitizenAuthPage />} />
         <Route path="/citizen/dashboard" element={<CitizenGuard><CitizenDashboardPage /></CitizenGuard>} />
-        <Route path="/citizen/submit" element={<CitizenGuard><SubmitComplaintPage /></CitizenGuard>} />
+        {/* <Route path="/citizen/submit" element={<CitizenGuard><SubmitComplaintPage /></CitizenGuard>} /> */}
+        // Change route:
+        <Route path="/citizen/submit"      element={<CitizenGuard><ChatIntakePage /></CitizenGuard>} />
+        <Route path="/citizen/submit-form" element={<CitizenGuard><SubmitComplaintPage /></CitizenGuard>} />
         <Route path="/citizen/complaints" element={<CitizenGuard><CitizenComplaintsPage /></CitizenGuard>} />
         <Route path="/citizen/track/:id" element={<CitizenGuard><TrackComplaintPage /></CitizenGuard>} />
         <Route path="/citizen/profile" element={<CitizenGuard><CitizenProfilePage /></CitizenGuard>} />

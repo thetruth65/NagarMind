@@ -33,6 +33,10 @@ from app.services.predictive_alerts    import run_predictive_alerts
 from app.services.ward_health_service  import recalculate_all_wards
 from app.services.weekly_digest_service import generate_all_ward_digests
 
+from app.api.chatbot          import router as chatbot_router
+from app.api.complaint_chat   import router as complaint_chat_router
+from app.api.broadcast_alerts import router as broadcast_router
+
 import logging
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
@@ -184,6 +188,9 @@ app.include_router(translate_router,  prefix="/api/translate",  tags=["Translate
 app.include_router(upload_router,     prefix="/api/upload",     tags=["Upload"])
 app.include_router(ward_router,       prefix="/api/wards",       tags=["Ward"])
 app.include_router(ws_router,         prefix="",                tags=["WebSocket"])
+app.include_router(chatbot_router,        prefix="/api/chatbot",         tags=["Chatbot"])
+app.include_router(complaint_chat_router, prefix="/api/complaints",      tags=["Chat"])
+app.include_router(broadcast_router,      prefix="/api/admin/broadcast", tags=["Broadcast"])
 
 
 # ── Health endpoints ──────────────────────────────────────────────────────────

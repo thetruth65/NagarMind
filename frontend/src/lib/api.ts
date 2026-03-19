@@ -1,8 +1,3 @@
-// // ─────────────────────────────────────────────────────────────────────────────
-// // NagarMind — API Client
-// // src/lib/api.ts
-// // ─────────────────────────────────────────────────────────────────────────────
-
 // import axios from 'axios'
 
 // const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
@@ -105,7 +100,6 @@
 // export const uploadAPI = {
 //   /**
 //    * Upload a single photo. Returns { public_url } as a base64 data URI.
-//    * Use the returned public_url directly as <img src={...} />
 //    */
 //   uploadPhoto: (file: File) => {
 //     const form = new FormData()
@@ -118,7 +112,6 @@
 //   /**
 //    * Upload audio blob AND get transcript back in one request.
 //    * Returns { transcript, public_url, language }
-//    * No R2, no second hop needed.
 //    */
 //   uploadAudioAndTranscribe: (blob: Blob, languageHint?: string) => {
 //     const form = new FormData()
@@ -129,7 +122,7 @@
 //     })
 //   },
 
-//   // Legacy — kept so old code doesn't break but logs a warning
+//   // Legacy — kept so old code doesn't break
 //   uploadAudio: (blob: Blob) => {
 //     console.warn('[uploadAPI] uploadAudio is deprecated. Use uploadAudioAndTranscribe instead.')
 //     const form = new FormData()
@@ -139,7 +132,6 @@
 //     })
 //   },
 
-//   // Legacy presign stub — returns error, kept to avoid crash
 //   presign: (_filename: string, _content_type: string, _folder = 'complaints') => {
 //     console.warn('[uploadAPI] presign is disabled. Use uploadPhoto instead.')
 //     return Promise.reject(new Error('R2 presign disabled. Use uploadPhoto.'))
@@ -153,52 +145,71 @@
 
 // // ── Complaints ────────────────────────────────────────────────────────────────
 // export const complaintsAPI = {
-//   // Citizen
+//   // ── Citizen ──────────────────────────────────────────────────────────────
 //   submit:  (data: object) => api.post('/api/complaints/', data),
 
-//   // TrackComplaintPage uses complaintsAPI.track(id)
-//   // Backend has GET /{complaint_id}/public (no auth) and GET /{complaint_id} (auth)
-//   // We try authenticated first, fall back to public
+//   /**
+//    * track(id) — tries authenticated endpoint first, falls back to public.
+//    * TrackComplaintPage uses this for both logged-in and guest access.
+//    */
 //   track: (id: string) =>
 //     api.get(`/api/complaints/${id}`).catch(() =>
 //       api.get(`/api/complaints/${id}/public`)
 //     ),
 
+//   /**
+//    * getPublic(id) — unauthenticated public tracking endpoint.
+//    * Use when you explicitly want the public (no-auth) version.
+//    */
+//   getPublic: (id: string) => api.get(`/api/complaints/${id}/public`),
+
 //   mine:    (params?: object) => api.get('/api/complaints/my', { params }),
 //   rate:    (id: string, data: object) => api.post(`/api/complaints/${id}/rate`, data),
 //   dispute: (id: string, data: object) => api.post(`/api/complaints/${id}/dispute`, data),
 
-//   // Officer
+//   // ── Officer ───────────────────────────────────────────────────────────────
 //   updateStatus:  (id: string, data: object) => api.patch(`/api/complaints/${id}/status`, data),
 //   officerInbox:  (params?: object) => api.get('/api/complaints/officer/inbox', { params }),
 //   inbox:         (params?: object) => api.get('/api/complaints/officer/inbox', { params }),
 //   officerDetail: (id: string) => api.get(`/api/complaints/${id}`),
 
 //   /**
-//    * transcribeUrl — LEGACY. Now a no-op stub.
-//    *
-//    * The old flow was:
-//    *   1. upload audio to R2 → get URL
-//    *   2. POST /transcribe-url?audio_url=<huge base64 string>  ← THIS BROKE
-//    *
-//    * New flow: use uploadAPI.uploadAudioAndTranscribe(blob, lang)
-//    * which does everything in one request.
-//    *
-//    * This stub is kept so old call sites don't crash immediately —
-//    * they'll get an empty transcript and a console warning.
+//    * assignComplaint(id) — officer self-assigns an unassigned complaint
+//    * from their ward. Backend: POST /api/complaints/:id/assign
+//    * Sets status to 'assigned', records SLA deadline, notifies both parties.
+//    */
+//   assignComplaint: (id: string) => api.post(`/api/complaints/${id}/assign`),
+
+//   /**
+//    * transcribeUrl — LEGACY stub. Use uploadAPI.uploadAudioAndTranscribe instead.
 //    */
 //   transcribeUrl: (_audio_url: string, _language_hint?: string) => {
 //     console.warn(
-//       '[complaintsAPI] transcribeUrl is deprecated and disabled.\n' +
-//       'Use uploadAPI.uploadAudioAndTranscribe(blob, lang) instead.\n' +
-//       'It returns { transcript, public_url } in one request.'
+//       '[complaintsAPI] transcribeUrl is deprecated. ' +
+//       'Use uploadAPI.uploadAudioAndTranscribe(blob, lang) instead.'
 //     )
 //     return Promise.resolve({ data: { transcript: '', language: _language_hint } })
 //   },
 
-//   // Notifications
+//   // ── Notifications ─────────────────────────────────────────────────────────
+//   /**
+//    * myNotifications() — GET /api/complaints/notifications/mine
+//    * Returns { notifications: Notification[], unread_count: number }
+//    */
 //   myNotifications: () => api.get('/api/complaints/notifications/mine'),
-//   markAllRead:     () => api.post('/api/complaints/notifications/read-all'),
+
+//   /**
+//    * markAllRead() — POST /api/complaints/notifications/read-all
+//    * Marks all of the current user's notifications as read.
+//    */
+//   markAllRead: () => api.post('/api/complaints/notifications/read-all'),
+
+//   /**
+//    * markNotificationRead(id) — PATCH /api/complaints/notifications/:id/read
+//    * Marks a single notification as read.
+//    */
+//   markNotificationRead: (notificationId: string) =>
+//     api.patch(`/api/complaints/notifications/${notificationId}/read`),
 // }
 
 // // ── Officer ───────────────────────────────────────────────────────────────────
@@ -268,6 +279,7 @@
 //   officersFull: () =>
 //     api.get('/api/analytics/officers/leaderboard-full'),
 // }
+
 // ─────────────────────────────────────────────────────────────────────────────
 // NagarMind — API Client
 // src/lib/api.ts
@@ -423,19 +435,11 @@ export const complaintsAPI = {
   // ── Citizen ──────────────────────────────────────────────────────────────
   submit:  (data: object) => api.post('/api/complaints/', data),
 
-  /**
-   * track(id) — tries authenticated endpoint first, falls back to public.
-   * TrackComplaintPage uses this for both logged-in and guest access.
-   */
   track: (id: string) =>
     api.get(`/api/complaints/${id}`).catch(() =>
       api.get(`/api/complaints/${id}/public`)
     ),
 
-  /**
-   * getPublic(id) — unauthenticated public tracking endpoint.
-   * Use when you explicitly want the public (no-auth) version.
-   */
   getPublic: (id: string) => api.get(`/api/complaints/${id}/public`),
 
   mine:    (params?: object) => api.get('/api/complaints/my', { params }),
@@ -448,16 +452,8 @@ export const complaintsAPI = {
   inbox:         (params?: object) => api.get('/api/complaints/officer/inbox', { params }),
   officerDetail: (id: string) => api.get(`/api/complaints/${id}`),
 
-  /**
-   * assignComplaint(id) — officer self-assigns an unassigned complaint
-   * from their ward. Backend: POST /api/complaints/:id/assign
-   * Sets status to 'assigned', records SLA deadline, notifies both parties.
-   */
   assignComplaint: (id: string) => api.post(`/api/complaints/${id}/assign`),
 
-  /**
-   * transcribeUrl — LEGACY stub. Use uploadAPI.uploadAudioAndTranscribe instead.
-   */
   transcribeUrl: (_audio_url: string, _language_hint?: string) => {
     console.warn(
       '[complaintsAPI] transcribeUrl is deprecated. ' +
@@ -467,24 +463,50 @@ export const complaintsAPI = {
   },
 
   // ── Notifications ─────────────────────────────────────────────────────────
-  /**
-   * myNotifications() — GET /api/complaints/notifications/mine
-   * Returns { notifications: Notification[], unread_count: number }
-   */
   myNotifications: () => api.get('/api/complaints/notifications/mine'),
-
-  /**
-   * markAllRead() — POST /api/complaints/notifications/read-all
-   * Marks all of the current user's notifications as read.
-   */
-  markAllRead: () => api.post('/api/complaints/notifications/read-all'),
-
-  /**
-   * markNotificationRead(id) — PATCH /api/complaints/notifications/:id/read
-   * Marks a single notification as read.
-   */
+  markAllRead:     () => api.post('/api/complaints/notifications/read-all'),
   markNotificationRead: (notificationId: string) =>
     api.patch(`/api/complaints/notifications/${notificationId}/read`),
+
+  // ── Chat messages ─────────────────────────────────────────────────────────
+  getMessages: (complaintId: string) =>
+    api.get(`/api/complaints/${complaintId}/messages`),
+
+  sendMessage: (complaintId: string, message: string) =>
+    api.post(`/api/complaints/${complaintId}/messages`, { message }),
+
+  unreadMessages: () =>
+    api.get('/api/complaints/messages/unread-count'),
+}
+
+// ── Chatbot ───────────────────────────────────────────────────────────────────
+export const chatbotAPI = {
+  sendMessage: (data: {
+    message: string
+    thread_id: string
+    language?: string
+    latitude?: number
+    longitude?: number
+  }) => api.post('/api/chatbot/message', data),
+
+  clearSession: (threadId: string) =>
+    api.delete(`/api/chatbot/session/${threadId}`),
+}
+
+// ── Broadcast alerts (admin) ──────────────────────────────────────────────────
+export const broadcastAPI = {
+  send: (data: {
+    title: string
+    message: string
+    severity: 'info' | 'warning' | 'critical'
+    scope: 'ward' | 'zone' | 'city'
+    ward_ids?: number[]
+    zone_name?: string | null
+  }) => api.post('/api/admin/broadcast/send', data),
+
+  history:  () => api.get('/api/admin/broadcast/history'),
+  wards:    () => api.get('/api/admin/broadcast/wards'),
+  myAlerts: () => api.get('/api/admin/broadcast/mine'),
 }
 
 // ── Officer ───────────────────────────────────────────────────────────────────
