@@ -8,7 +8,6 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     DEBUG: bool = True
     
-    # ✅ FIX: Use a hardcoded fallback or the ENV value. NEVER generate random here.
     SECRET_KEY: str = os.getenv("SECRET_KEY", "super-secret-fixed-key-for-dev-environment-only")
     
     JWT_ALGORITHM: str = "HS256"
@@ -17,19 +16,26 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://user:pass@localhost/nagarmind")
 
-    # API Keys (Rotation Logic handles the lists)
+    # Gemini API Keys (4 keys for rotation)
     GEMINI_API_KEY_1: str = ""
     GEMINI_API_KEY_2: str = ""
     GEMINI_API_KEY_3: str = ""
     GEMINI_API_KEY_4: str = ""
-    GEMINI_MODEL: str = "gemini-1.5-flash"
+    GEMINI_MODEL: str = "gemini-2.5-flash-lite"
 
+    # Sarvam AI Keys (4 keys for rotation)
     SARVAM_API_KEY_1: str = ""
     SARVAM_API_KEY_2: str = ""
     SARVAM_API_KEY_3: str = ""
     SARVAM_API_KEY_4: str = ""
 
-    # Cloudflare
+    # Groq API Keys (4 keys for rotation) — used for chatbot + Whisper STT
+    GROQ_API_KEY: str = ""
+    GROQ_API_KEY_2: str = ""
+    GROQ_API_KEY_3: str = ""
+    GROQ_API_KEY_4: str = ""
+
+    # Cloudflare R2
     CF_R2_ACCOUNT_ID: str = ""
     CF_R2_ACCESS_KEY_ID: str = ""
     CF_R2_SECRET_ACCESS_KEY: str = ""
@@ -49,9 +55,6 @@ class Settings(BaseSettings):
     OTP_MAX_ATTEMPTS: int = 3
     OTP_RESEND_COOLDOWN_SECONDS: int = 60
 
-    GROQ_API_KEY: str = ""
-
-
     @property
     def gemini_keys(self) -> List[str]:
         keys = [self.GEMINI_API_KEY_1, self.GEMINI_API_KEY_2, self.GEMINI_API_KEY_3, self.GEMINI_API_KEY_4]
@@ -60,6 +63,11 @@ class Settings(BaseSettings):
     @property
     def sarvam_keys(self) -> List[str]:
         keys = [self.SARVAM_API_KEY_1, self.SARVAM_API_KEY_2, self.SARVAM_API_KEY_3, self.SARVAM_API_KEY_4]
+        return [k for k in keys if k]
+
+    @property
+    def groq_keys(self) -> List[str]:
+        keys = [self.GROQ_API_KEY, self.GROQ_API_KEY_2, self.GROQ_API_KEY_3, self.GROQ_API_KEY_4]
         return [k for k in keys if k]
 
     @property

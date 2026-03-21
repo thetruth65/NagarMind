@@ -1,225 +1,224 @@
 """
-NagarMind v2 — LangGraph Chatbot Complaint Intake Agent
-Uses Groq (Llama 3.3 70B) — 14,400 req/day free tier, no quota issues.
-Gemini keys are reserved for classification, digests, and officer summaries.
+NagarMind v3 — Chatbot Agent
+Single-shot async function. No LangGraph. No loops.
+Stages: greeting → asking_title → asking_description → asking_category
+        → asking_address → asking_photos → confirming → submitted
 """
 
 import json
 import logging
 import httpx
-from typing import Optional, Annotated
-from typing_extensions import TypedDict
-
-from langchain_core.messages import HumanMessage, AIMessage
-from langgraph.graph import StateGraph, START, END
-from langgraph.graph.message import add_messages
+import threading
+import time
+from typing import Optional, List
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 
-# ─── State ────────────────────────────────────────────────────────────────────
+# ─── Key Rotator ──────────────────────────────────────────────────────────────
 
-class ComplaintState(TypedDict):
-    messages: Annotated[list, add_messages]
-    title: Optional[str]
-    description: Optional[str]
-    category: Optional[str]
-    address: Optional[str]
-    latitude: float
-    longitude: float
-    language: str
-    stage: str           # greet | gather | confirm | submitted
-    confirmed: bool
-    citizen_id: str
-    ward_id: int
-    complaint_payload: Optional[dict]
+class GroqKeyRotator:
+    def __init__(self):
+        self._lock        = threading.Lock()
+        self._index       = 0
+        self._error_until: dict[int, float] = {}
+        self._cooldown    = 65
+
+    def _valid_keys(self) -> List[str]:
+        raw = [
+            settings.GROQ_API_KEY,
+            getattr(settings, "GROQ_API_KEY_2", ""),
+            getattr(settings, "GROQ_API_KEY_3", ""),
+            getattr(settings, "GROQ_API_KEY_4", ""),
+        ]
+        return [k.strip() for k in raw if k and k.strip()]
+
+    def get_key(self) -> Optional[str]:
+        with self._lock:
+            keys = self._valid_keys()
+            if not keys:
+                logger.error("No valid Groq API keys configured")
+                return None
+            now = time.time()
+            for _ in range(len(keys)):
+                idx = self._index % len(keys)
+                self._index = (self._index + 1) % len(keys)
+                if now >= self._error_until.get(idx, 0):
+                    return keys[idx]
+            best = min(range(len(keys)), key=lambda i: self._error_until.get(i, 0))
+            return keys[best]
+
+    def mark_429(self, key: str):
+        with self._lock:
+            keys = self._valid_keys()
+            if key in keys:
+                idx = keys.index(key)
+                self._error_until[idx] = time.time() + self._cooldown
+                logger.warning(f"Groq key[{idx}] rate-limited {self._cooldown}s")
+
+    def count(self) -> int:
+        return len(self._valid_keys())
 
 
-# ─── Groq API call ────────────────────────────────────────────────────────────
+_rotator = GroqKeyRotator()
 
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-# Llama 3.3 70B: best free-tier model for instruction-following + multilingual
+
+# ─── Session ──────────────────────────────────────────────────────────────────
+
+class SessionState:
+    __slots__ = [
+        "history", "title", "description", "category", "address",
+        "stage", "language", "citizen_id", "ward_id",
+        "latitude", "longitude", "confirmed", "complaint_payload",
+    ]
+    def __init__(self, citizen_id: str, ward_id: int, language: str,
+                 latitude: float, longitude: float):
+        self.history           = []
+        self.title             = None
+        self.description       = None
+        self.category          = None
+        self.address           = None
+        self.stage             = "greeting"
+        self.language          = language
+        self.citizen_id        = citizen_id
+        self.ward_id           = ward_id
+        self.latitude          = latitude
+        self.longitude         = longitude
+        self.confirmed         = False
+        self.complaint_payload = None
+
+
+_sessions: dict[str, SessionState] = {}
+
+
+# ─── Groq call ────────────────────────────────────────────────────────────────
+
+GROQ_URL   = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 
 
-async def _groq_generate(system: str, user: str) -> str:
-    """
-    Direct async Groq API call. Returns the assistant message content.
-    Uses GROQ_API_KEY from settings.
-    """
-    api_key = getattr(settings, "GROQ_API_KEY", "")
-    if not api_key:
-        raise ValueError("GROQ_API_KEY not set in .env")
+async def _call_groq(system: str, history: list, max_tokens: int = 500) -> str:
+    if _rotator.count() == 0:
+        return _fallback_json()
 
-    payload = {
-        "model": GROQ_MODEL,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user",   "content": user},
-        ],
-        "temperature": 0.1,
-        "max_tokens": 512,
-        "response_format": {"type": "json_object"},  # forces valid JSON output
-    }
+    for attempt in range(4):
+        key = _rotator.get_key()
+        if not key:
+            break
+        try:
+            async with httpx.AsyncClient(timeout=25) as client:
+                resp = await client.post(
+                    GROQ_URL,
+                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                    json={
+                        "model":           GROQ_MODEL,
+                        "messages":        [{"role": "system", "content": system}] + history,
+                        "temperature":     0.15,
+                        "max_tokens":      max_tokens,
+                        "response_format": {"type": "json_object"},
+                    },
+                )
+            if resp.status_code == 200:
+                return resp.json()["choices"][0]["message"]["content"]
+            if resp.status_code == 429:
+                _rotator.mark_429(key)
+                import asyncio; await asyncio.sleep(min(2 ** attempt, 8))
+                continue
+            if resp.status_code == 401:
+                logger.error(f"Groq 401 — invalid key (prefix: {key[:10]}...)")
+                import asyncio; await asyncio.sleep(0.5)
+                continue
+            resp.raise_for_status()
+        except httpx.TimeoutException:
+            logger.warning(f"Groq timeout attempt {attempt+1}")
+            import asyncio; await asyncio.sleep(1)
+        except Exception as e:
+            logger.warning(f"Groq error attempt {attempt+1}: {e}")
+            if "429" in str(e):
+                _rotator.mark_429(key)
+            import asyncio; await asyncio.sleep(1)
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(
-            GROQ_URL,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return data["choices"][0]["message"]["content"]
-
-
-# ─── Prompts ──────────────────────────────────────────────────────────────────
-
-SYSTEM_PROMPT = """You are NagarMind, a friendly civic assistant for MCD Delhi.
-Help citizens report civic problems conversationally.
-
-RULES:
-1. Reply in the SAME language the citizen uses (Hindi, English, Tamil, Bengali, Gujarati, Marathi, Telugu, Kannada, Malayalam, Punjabi, Odia).
-2. Extract these 4 fields through conversation:
-   - title: 5-10 word summary of the problem
-   - description: what exactly is wrong
-   - category: exactly one of [pothole, garbage, sewage, water_supply, streetlight, stray_animals, encroachment, noise, tree, other]
-   - address: street name, landmark, or colony
-3. Ask for only the missing fields, one at a time. Keep replies short.
-4. Once all 4 fields are known, show a summary and ask the citizen to confirm.
-5. If the citizen confirms (yes/haan/ha/correct/submit), set user_confirmed to true.
-
-ALWAYS respond with this exact JSON structure (no markdown, no extra text):
-{"reply":"your message","extracted":{"title":null,"description":null,"category":null,"address":null},"ready_to_confirm":false,"user_confirmed":false}
-
-Category mapping:
-pothole=road hole/damage, garbage=waste/litter, sewage=drain/sewer/flood, water_supply=tap/pipe/water,
-streetlight=lamp/light, stray_animals=dog/cow/cattle, encroachment=footpath blocked/illegal shop,
-noise=construction/party/loud, tree=fallen branch/tree, other=anything else"""
+    return _fallback_json()
 
 
-# ─── Nodes ────────────────────────────────────────────────────────────────────
-
-async def gather_node(state: ComplaintState) -> dict:
-    if state.get("stage") == "submitted":
-        return {}
-
-    known = {k: v for k, v in {
-        "title":       state.get("title"),
-        "description": state.get("description"),
-        "category":    state.get("category"),
-        "address":     state.get("address"),
-    }.items() if v}
-    known_str = json.dumps(known, ensure_ascii=False) if known else "none"
-
-    # Keep only last 8 messages to stay within token limits
-    history_lines = []
-    for msg in list(state["messages"])[-8:]:
-        if isinstance(msg, HumanMessage):
-            history_lines.append(f"Citizen: {msg.content}")
-        elif isinstance(msg, AIMessage):
-            history_lines.append(f"NagarMind: {msg.content}")
-    history_text = "\n".join(history_lines) if history_lines else "(new conversation)"
-
-    lang = state.get("language", "en")
-
-    user_content = f"""Known fields so far: {known_str}
-Citizen language: {lang}
-Conversation:
-{history_text}
-
-Continue the conversation. Extract any new fields from the citizen's latest message."""
-
-    try:
-        raw = await _groq_generate(SYSTEM_PROMPT, user_content)
-        raw = raw.strip()
-
-        parsed = json.loads(raw)
-        reply_text     = parsed.get("reply", "")
-        extracted      = parsed.get("extracted", {})
-        ready          = parsed.get("ready_to_confirm", False)
-        user_confirmed = parsed.get("user_confirmed", False)
-
-        updates: dict = {"messages": [AIMessage(content=reply_text)]}
-
-        for field in ["title", "description", "category", "address"]:
-            val = extracted.get(field)
-            if val and not state.get(field):
-                updates[field] = val
-
-        if user_confirmed:
-            updates["confirmed"] = True
-            updates["stage"] = "submit"
-        elif ready:
-            updates["stage"] = "confirm"
-
-        return updates
-
-    except Exception as e:
-        logger.warning(f"Chatbot node error: {e}")
-        fallback = (
-            "माफ़ करें, कुछ गड़बड़ हुई। क्या आप दोबारा बता सकते हैं?"
-            if lang == "hi"
-            else "Sorry, something went wrong. Could you describe the problem again?"
-        )
-        return {"messages": [AIMessage(content=fallback)]}
+def _fallback_json() -> str:
+    return json.dumps({
+        "reply": "Sorry, I had a connection issue. Please try again.",
+        "extracted": {}, "next_stage": "same", "confirmed": False,
+    })
 
 
-async def submit_node(state: ComplaintState) -> dict:
-    payload = {
-        "title":             state.get("title") or "Civic Issue",
-        "description":       state.get("description") or "",
-        "category":          state.get("category") or "other",
-        "location_address":  state.get("address") or "",
-        "location_lat":      state.get("latitude", 28.6139),
-        "location_lng":      state.get("longitude", 77.2090),
-        "original_language": state.get("language", "en"),
-        "photos":            [],
-        "voice_transcript":  None,
-    }
-    lang = state.get("language", "en")
-    done = (
-        "✅ आपकी शिकायत दर्ज हो गई है! जल्द ही एक अधिकारी आपसे संपर्क करेगा।"
-        if lang == "hi"
-        else "✅ Complaint submitted! An officer will be assigned shortly."
-    )
-    return {
-        "complaint_payload": payload,
-        "stage": "submitted",
-        "messages": [AIMessage(content=done)],
-    }
+# ─── System Prompt ────────────────────────────────────────────────────────────
+
+SYSTEM_PROMPT = """You are NagarMind, a friendly AI civic complaint assistant for MCD Delhi.
+Guide citizens step-by-step. ONE question per message. Never combine steps.
+
+== LANGUAGE ==
+Reply in the SAME language the citizen uses.
+English, Hindi, Bengali, Tamil, Telugu, Marathi, Gujarati, Kannada, Malayalam, Punjabi, Odia.
+
+== STAGE SEQUENCE ==
+
+greeting → Ask: "What civic problem would you like to report?" → next_stage: asking_title
+
+asking_title → Extract a 5-10 word title. If vague, ask to clarify.
+  Once clear → next_stage: asking_description
+
+asking_description → Ask for details (severity, duration, hazards). Need ≥10 words.
+  Once good → next_stage: asking_category
+
+asking_category → Auto-detect from title+description. Categories:
+  pothole, garbage, sewage, water_supply, streetlight, tree, stray_animals, encroachment, noise, other
+  Say: "I've classified this as [CATEGORY]. Correct? (yes/no)"
+  yes → next_stage: asking_address
+  no → ask to pick, update, then → next_stage: asking_address
+
+asking_address → Say: "Please use the map below to pin your location, or type the address."
+  The frontend will show a map widget. Wait for user to confirm with their address text.
+  When user replies with an address (any location text) → extract it, next_stage: asking_photos
+
+asking_photos → Say: "You can add photos as evidence (optional). Use the upload widget below, then click Continue."
+  The frontend will show photo upload widget. When user confirms → next_stage: confirming
+
+confirming → Show summary:
+  📋 Title: [title]
+  📝 Description: [first 80 chars]
+  🏷️ Category: [category]
+  📍 Location: [address]
+  Ask: "Everything correct? Reply YES to submit, or tell me what to change."
+  YES → confirmed: true, next_stage: submit
+  Change → update, stay confirming.
+
+submit → Confirm submission. next_stage: submitted.
+
+== RULES ==
+- ONE question/instruction per reply. Max 3 sentences.
+- Be warm, patient, supportive.
+- If off-topic, redirect.
+
+== CATEGORY GUIDE ==
+pothole=road hole, garbage=waste, sewage=drain/sewer,
+water_supply=no water/pipe, streetlight=broken light, tree=fallen tree,
+stray_animals=stray dogs/cows, encroachment=blocked footpath,
+noise=loud noise, other=anything else
+
+== JSON OUTPUT ONLY ==
+{
+  "reply": "message to citizen",
+  "extracted": {
+    "title": null_or_string,
+    "description": null_or_string,
+    "category": null_or_string,
+    "address": null_or_string
+  },
+  "next_stage": "asking_title|asking_description|asking_category|asking_address|asking_photos|confirming|submit|submitted|same",
+  "confirmed": false_or_true
+}"""
 
 
-# ─── Routing + Graph ──────────────────────────────────────────────────────────
-
-def route(state: ComplaintState) -> str:
-    if state.get("stage") == "submitted":
-        return END
-    if state.get("stage") == "submit" or state.get("confirmed"):
-        return "submit"
-    return "gather"
-
-
-def build_graph():
-    g = StateGraph(ComplaintState)
-    g.add_node("gather", gather_node)
-    g.add_node("submit", submit_node)
-    g.add_edge(START, "gather")
-    g.add_conditional_edges("gather", route, {"gather": "gather", "submit": "submit", END: END})
-    g.add_edge("submit", END)
-    return g.compile()
-
-
-complaint_graph = build_graph()
-_sessions: dict = {}
-
-
-# ─── Public API ───────────────────────────────────────────────────────────────
+# ─── Main ─────────────────────────────────────────────────────────────────────
 
 async def chat_with_agent(
     thread_id: str,
@@ -227,50 +226,146 @@ async def chat_with_agent(
     citizen_id: str,
     ward_id: int,
     language: str = "en",
-    latitude: float = 28.6139,
+    latitude:  float = 28.6139,
     longitude: float = 77.2090,
 ) -> dict:
-    current: ComplaintState = _sessions.get(thread_id) or {
-        "messages":          [],
-        "title":             None,
-        "description":       None,
-        "category":          None,
-        "address":           None,
-        "latitude":          latitude,
-        "longitude":         longitude,
-        "language":          language,
-        "stage":             "greet",
-        "confirmed":         False,
-        "citizen_id":        citizen_id,
-        "ward_id":           ward_id,
-        "complaint_payload": None,
-    }
+    """Process one user message → one Groq call → return reply. No loops."""
 
-    if user_message.strip():
-        current["messages"] = list(current["messages"]) + [HumanMessage(content=user_message)]
+    if thread_id not in _sessions:
+        _sessions[thread_id] = SessionState(citizen_id, ward_id, language, latitude, longitude)
 
-    try:
-        new_state = await complaint_graph.ainvoke(current)
-    except Exception as e:
-        logger.error(f"Graph error: {e}")
+    sess = _sessions[thread_id]
+    if language:
+        sess.language  = language
+    # Update location if user shared it
+    if latitude  != 28.6139: sess.latitude  = latitude
+    if longitude != 77.2090: sess.longitude = longitude
+
+    if sess.stage == "submitted":
         return {
-            "reply": "Sorry, something went wrong. Please try again.",
-            "stage": "gather",
-            "complaint_payload": None,
+            "reply":             "✅ Your complaint has already been submitted!",
+            "stage":             "submitted",
+            "complaint_payload": sess.complaint_payload,
+            "extracted":         _extracted(sess),
         }
 
-    _sessions[thread_id] = new_state
+    if user_message.strip():
+        sess.history.append({"role": "user", "content": user_message.strip()})
 
-    ai_msgs = [m for m in new_state["messages"] if isinstance(m, AIMessage)]
-    last_reply = ai_msgs[-1].content if ai_msgs else "Hello! What problem would you like to report?"
+    already = {k: v for k, v in {
+        "title": sess.title, "description": sess.description,
+        "category": sess.category, "address": sess.address,
+    }.items() if v}
+
+    context = (
+        f"\n\n== CURRENT STATE ==\n"
+        f"Stage: {sess.stage}\n"
+        f"Collected: {json.dumps(already, ensure_ascii=False)}\n"
+        f"Language: {sess.language}\n"
+        f"Active keys: {_rotator.count()}\n"
+        f"You are in stage '{sess.stage}'. Follow that stage's instructions exactly."
+    )
+
+    try:
+        raw    = await _call_groq(SYSTEM_PROMPT + context, sess.history[-12:], max_tokens=500)
+        parsed = json.loads(raw.strip())
+    except json.JSONDecodeError:
+        reply = _fallback_msg(sess.language)
+        sess.history.append({"role": "assistant", "content": reply})
+        return {"reply": reply, "stage": sess.stage, "complaint_payload": None, "extracted": _extracted(sess)}
+    except Exception as e:
+        logger.error(f"chat_with_agent error: {e}", exc_info=True)
+        reply = _fallback_msg(sess.language)
+        sess.history.append({"role": "assistant", "content": reply})
+        return {"reply": reply, "stage": sess.stage, "complaint_payload": None, "extracted": _extracted(sess)}
+
+    reply_text     = parsed.get("reply", "")
+    extracted      = parsed.get("extracted") or {}
+    next_stage     = parsed.get("next_stage", "same") or "same"
+    user_confirmed = bool(parsed.get("confirmed", False))
+
+    # Merge extracted fields
+    for field in ["title", "description", "category", "address"]:
+        val = extracted.get(field)
+        if val and isinstance(val, str) and val.strip():
+            setattr(sess, field, val.strip())
+
+    if next_stage != "same":
+        sess.stage = next_stage
+    if user_confirmed:
+        sess.confirmed = True
+        sess.stage     = "submit"
+
+    # Build payload and mark submitted
+    if sess.stage == "submit":
+        sess.complaint_payload = {
+            "title":             sess.title       or "Civic Issue",
+            "description":       sess.description or "",
+            "category":          sess.category    or "other",
+            "location_address":  sess.address     or "",
+            "location_lat":      sess.latitude,
+            "location_lng":      sess.longitude,
+            "original_language": sess.language,
+            "photos":            [],
+            "voice_transcript":  None,
+        }
+        sess.stage = "submitted"
+        if "✅" not in reply_text:
+            reply_text = _submit_msg(sess.language)
+
+    sess.history.append({"role": "assistant", "content": reply_text})
 
     return {
-        "reply":             last_reply,
-        "stage":             new_state.get("stage", "gather"),
-        "complaint_payload": new_state.get("complaint_payload"),
+        "reply":             reply_text,
+        "stage":             sess.stage,
+        "complaint_payload": sess.complaint_payload,
+        "extracted":         _extracted(sess),
     }
+
+
+def _extracted(sess: SessionState) -> dict:
+    return {
+        "title":       sess.title,
+        "description": sess.description,
+        "category":    sess.category,
+        "address":     sess.address,
+    }
+
+
+def _fallback_msg(lang: str) -> str:
+    return {
+        "hi": "क्षमा करें, फिर से कोशिश करें।",
+        "bn": "দুঃখিত, আবার চেষ্টা করুন।",
+        "ta": "மன்னிக்கவும். மீண்டும் முயற்சிக்கவும்.",
+        "te": "క్షమించండి. మళ్ళీ ప్రయత్నించండి.",
+        "mr": "माफ करा. पुन्हा प्रयत्न करा.",
+    }.get(lang, "Sorry, something went wrong. Please try again.")
+
+
+def _submit_msg(lang: str) -> str:
+    return {
+        "hi": "✅ शिकायत दर्ज हो गई! जल्द ही अधिकारी नियुक्त होगा।",
+        "bn": "✅ অভিযোগ জমা হয়েছে! শীঘ্রই অফিসার নিয়োগ পাবেন।",
+        "ta": "✅ புகார் சமர்ப்பிக்கப்பட்டது!",
+        "te": "✅ ఫిర్యాదు సమర్పించబడింది!",
+        "mr": "✅ तक्रार दाखल!",
+        "en": "✅ Complaint submitted! An officer will be assigned shortly.",
+    }.get(lang, "✅ Complaint submitted!")
 
 
 def clear_session(thread_id: str):
     _sessions.pop(thread_id, None)
-    _sessions.pop(f"{thread_id}:done", None)
+
+
+def get_session_state(thread_id: str) -> Optional[dict]:
+    sess = _sessions.get(thread_id)
+    if not sess:
+        return None
+    return {
+        "title":       sess.title,
+        "description": sess.description,
+        "category":    sess.category,
+        "address":     sess.address,
+        "stage":       sess.stage,
+        "language":    sess.language,
+    }
