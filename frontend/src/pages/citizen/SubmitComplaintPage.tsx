@@ -9,7 +9,7 @@ import {
 import { AppShell } from '@/components/common/AppShell'
 import { complaintsAPI, uploadAPI, translateAPI } from '@/lib/api'
 import { useAuthStore } from '@/stores/authStore'
-import { CATEGORY_CONFIG, SUPPORTED_LANGUAGES } from '@/types'
+import { CATEGORY_CONFIG, CATEGORY_KEYS, SUPPORTED_LANGUAGES } from '@/types'
 import { LocationPicker } from '@/components/other/LocationPicker'
 import toast from 'react-hot-toast'
 
@@ -326,19 +326,23 @@ export function SubmitComplaintPage() {
                 </p>
               </div>
 
+              {/* ── FIXED: use CATEGORY_KEYS instead of Object.entries(CATEGORY_CONFIG) ── */}
               <div className="grid grid-cols-2 gap-3">
-                {Object.entries(CATEGORY_CONFIG).map(([key, cfg]) => (
-                  <motion.button key={key} whileTap={{ scale: 0.97 }} onClick={() => setCategory(key)}
-                    className={`p-5 rounded-2xl border-2 text-left transition-all
-                      ${category === key
-                        ? 'border-primary-500 bg-primary-600/10'
-                        : 'border-slate-800 bg-slate-900 hover:border-slate-700'}`}>
-                    <div className="text-3xl mb-3 opacity-90">{cfg.icon}</div>
-                    <p className={`text-sm font-semibold font-body ${category === key ? 'text-primary-400' : 'text-slate-300'}`}>
-                      {cfg.label}
-                    </p>
-                  </motion.button>
-                ))}
+                {CATEGORY_KEYS.map(key => {
+                  const cfg = CATEGORY_CONFIG[key]
+                  return (
+                    <motion.button key={key} whileTap={{ scale: 0.97 }} onClick={() => setCategory(key)}
+                      className={`p-5 rounded-2xl border-2 text-left transition-all
+                        ${category === key
+                          ? 'border-primary-500 bg-primary-600/10'
+                          : 'border-slate-800 bg-slate-900 hover:border-slate-700'}`}>
+                      <div className="text-3xl mb-3 opacity-90">{cfg.icon}</div>
+                      <p className={`text-sm font-semibold font-body ${category === key ? 'text-primary-400' : 'text-slate-300'}`}>
+                        {cfg.label}
+                      </p>
+                    </motion.button>
+                  )
+                })}
               </div>
             </motion.div>
           )}
@@ -509,7 +513,6 @@ export function SubmitComplaintPage() {
                 <p className="text-sm text-slate-400 font-body">Pin the exact spot and attach photos.</p>
               </div>
 
-              {/* ── LocationPicker replaces the old inline map ── */}
               <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
                 <LocationPicker
                   initialLat={lat}

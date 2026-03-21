@@ -1,338 +1,410 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// NagarMind — Types & Constants
-// src/types/index.ts
+// NagarMind — types/index.ts  (complete, no duplicates, fully backwards-compatible)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ── Core entity interfaces ────────────────────────────────────────────────────
-
-export interface Citizen {
-  citizen_id: string
-  full_name: string
-  phone_number: string
-  email?: string
-  ward_id: number
-  ward_name?: string
-  home_address?: string
-  preferred_language: string
-  profile_photo_url?: string
-  total_complaints: number
-  resolved_complaints: number
-  created_at: string
-}
-
+// ── Role ──────────────────────────────────────────────────────────────────────
 export type Role = 'citizen' | 'officer' | 'admin'
 
-export interface Officer {
-  officer_id: string
-  full_name: string
-  employee_id: string
-  phone_number: string
-  designation: string
-  department: string
-  ward_id?: number
-  ward_name?: string
-  zone?: string
-  preferred_language: string
-  total_assigned: number
-  total_resolved: number
-  avg_resolution_hours?: number
-  sla_compliance_rate?: number
-  citizen_rating_avg?: number
-  performance_score?: number
+// ── Category ──────────────────────────────────────────────────────────────────
+// 10 canonical keys — exactly what complaint_pipeline.py writes to DB
+export type CategoryKey =
+  | 'pothole'
+  | 'garbage'
+  | 'sewage'
+  | 'water_supply'
+  | 'streetlight'
+  | 'tree'
+  | 'stray_animals'
+  | 'encroachment'
+  | 'noise'
+  | 'other'
+
+export interface CategoryConfig {
+  label: string
+  icon: string
+  color: string       // Tailwind text class
+  bg: string          // Tailwind bg class — old pages (e.g. 'bg-orange-100')
+  bgColor: string     // Tailwind bg class — new pages (e.g. 'bg-orange-500/10')
+  borderColor: string
+  description: string
+  dept?: string
 }
 
+// Record<string, ...> so pages can index with dynamic/legacy string keys without cast errors
+export const CATEGORY_CONFIG: Record<string, CategoryConfig> = {
+  pothole: {
+    label: 'Pothole', icon: '🕳️',
+    color: 'text-orange-400', bg: 'bg-orange-100',
+    bgColor: 'bg-orange-500/10', borderColor: 'border-orange-500/30',
+    description: 'Road damage, craters, pits', dept: 'Roads & Drainage',
+  },
+  garbage: {
+    label: 'Garbage', icon: '🗑️',
+    color: 'text-yellow-400', bg: 'bg-yellow-100',
+    bgColor: 'bg-yellow-500/10', borderColor: 'border-yellow-500/30',
+    description: 'Waste, litter, overflowing bins', dept: 'Public Health & Sanitation',
+  },
+  sewage: {
+    label: 'Sewage', icon: '💧',
+    color: 'text-blue-400', bg: 'bg-blue-100',
+    bgColor: 'bg-blue-500/10', borderColor: 'border-blue-500/30',
+    description: 'Drain blockage, overflow, smell', dept: 'Public Health & Sanitation',
+  },
+  water_supply: {
+    label: 'Water Supply', icon: '🚰',
+    color: 'text-cyan-400', bg: 'bg-cyan-100',
+    bgColor: 'bg-cyan-500/10', borderColor: 'border-cyan-500/30',
+    description: 'No water, low pressure, contamination', dept: 'Water Supply',
+  },
+  streetlight: {
+    label: 'Streetlight', icon: '💡',
+    color: 'text-yellow-300', bg: 'bg-yellow-100',
+    bgColor: 'bg-yellow-400/10', borderColor: 'border-yellow-400/30',
+    description: 'Broken, missing, or flickering lights', dept: 'Roads & Drainage',
+  },
+  tree: {
+    label: 'Tree / Park', icon: '🌳',
+    color: 'text-green-400', bg: 'bg-emerald-100',
+    bgColor: 'bg-green-500/10', borderColor: 'border-green-500/30',
+    description: 'Fallen trees, overgrown branches, park issues', dept: 'Horticulture',
+  },
+  stray_animals: {
+    label: 'Stray Animals', icon: '🐕',
+    color: 'text-amber-400', bg: 'bg-amber-100',
+    bgColor: 'bg-amber-500/10', borderColor: 'border-amber-500/30',
+    description: 'Dogs, cattle causing hazard on roads', dept: 'Health Services',
+  },
+  encroachment: {
+    label: 'Encroachment', icon: '🚧',
+    color: 'text-red-400', bg: 'bg-red-100',
+    bgColor: 'bg-red-500/10', borderColor: 'border-red-500/30',
+    description: 'Illegal construction, blocked road or footpath', dept: 'Planning & Development',
+  },
+  noise: {
+    label: 'Noise', icon: '🔊',
+    color: 'text-purple-400', bg: 'bg-purple-100',
+    bgColor: 'bg-purple-500/10', borderColor: 'border-purple-500/30',
+    description: 'Excessive noise, loudspeakers, construction sounds', dept: 'Public Health & Sanitation',
+  },
+  other: {
+    label: 'Other', icon: '📋',
+    color: 'text-slate-400', bg: 'bg-gray-100',
+    bgColor: 'bg-slate-500/10', borderColor: 'border-slate-500/30',
+    description: 'Any other civic issue not listed above', dept: 'Administration',
+  },
+}
+
+// Ordered list of the 10 canonical keys — use this for rendering UI grids/lists
+// (never use Object.keys(CATEGORY_CONFIG) in UI — legacy aliases are also stored there)
+export const CATEGORY_KEYS: CategoryKey[] = [
+  'pothole', 'garbage', 'sewage', 'water_supply', 'streetlight',
+  'tree', 'stray_animals', 'encroachment', 'noise', 'other',
+]
+
+// Legacy DB / old setup-script keys → point to canonical entry (zero data duplication)
+;(function registerLegacyAliases() {
+  const C = CATEGORY_CONFIG
+  C.water                  = C.water_supply
+  C.road_damage            = C.pothole
+  C.pollution              = C.noise
+  C.building               = C.encroachment
+  C.roads_and_footpaths    = C.pothole
+  C.sanitation_and_garbage = C.garbage
+  C.drainage_and_flooding  = C.sewage
+  C.street_lighting        = C.streetlight
+  C.parks_and_gardens      = C.tree
+  C.illegal_construction   = C.encroachment
+  C.noise_and_pollution    = C.noise
+})()
+
+// ── Priority / Urgency ────────────────────────────────────────────────────────
+export type PriorityLevel = 'critical' | 'high' | 'medium' | 'low'
+export type UrgencyLevel = PriorityLevel
+
+export interface UrgencyConfig {
+  label: string
+  icon: string
+  color: string       // Tailwind text class
+  bg: string          // Tailwind bg class (required — used by ComplaintCard)
+  bgColor: string     // alias for new pages
+  borderColor: string
+  border?: string     // old shape alias
+  priority?: number
+}
+
+export const URGENCY_CONFIG: Record<string, UrgencyConfig> = {
+  critical: {
+    label: 'Critical', icon: '🔴',
+    color: 'text-red-700', bg: 'bg-red-100',
+    bgColor: 'bg-red-500/10', borderColor: 'border-red-500/40',
+    border: 'border-red-500', priority: 1,
+  },
+  high: {
+    label: 'High', icon: '🟠',
+    color: 'text-orange-700', bg: 'bg-orange-100',
+    bgColor: 'bg-orange-500/10', borderColor: 'border-orange-500/40',
+    border: 'border-orange-500', priority: 2,
+  },
+  medium: {
+    label: 'Medium', icon: '🟡',
+    color: 'text-amber-700', bg: 'bg-amber-100',
+    bgColor: 'bg-yellow-500/10', borderColor: 'border-yellow-500/40',
+    border: 'border-amber-400', priority: 3,
+  },
+  low: {
+    label: 'Low', icon: '🟢',
+    color: 'text-green-700', bg: 'bg-green-100',
+    bgColor: 'bg-green-500/10', borderColor: 'border-green-500/40',
+    border: 'border-green-400', priority: 4,
+  },
+}
+
+export const PRIORITY_CONFIG = URGENCY_CONFIG   // alias
+
+// ── Complaint status ──────────────────────────────────────────────────────────
+export type ComplaintStatus =
+  | 'submitted'
+  | 'pending'
+  | 'ai_classified'
+  | 'acknowledged'
+  | 'assigned'
+  | 'in_progress'
+  | 'resolved'
+  | 'closed'
+  | 'rejected'
+  | 'disputed'
+  | 'escalated'
+  | 'reopened'
+
+export interface StatusConfig {
+  label: string
+  icon: string
+  color: string    // Tailwind text class
+  bg: string       // Tailwind bg class (required — used by ComplaintCard & officer pages)
+  bgColor?: string
+  borderColor?: string
+}
+
+export const STATUS_CONFIG: Record<string, StatusConfig> = {
+  submitted:     { label: 'Submitted',    icon: '📝', color: 'text-slate-700',  bg: 'bg-slate-100',  bgColor: 'bg-blue-500/10',   borderColor: 'border-blue-500/30'   },
+  pending:       { label: 'Pending',      icon: '⏳', color: 'text-amber-700',  bg: 'bg-amber-50',   bgColor: 'bg-amber-500/10',  borderColor: 'border-amber-500/30'  },
+  ai_classified: { label: 'AI Processed', icon: '🤖', color: 'text-purple-700', bg: 'bg-purple-50',  bgColor: 'bg-purple-500/10', borderColor: 'border-purple-500/30' },
+  acknowledged:  { label: 'Acknowledged', icon: '👁️', color: 'text-indigo-700', bg: 'bg-indigo-50',  bgColor: 'bg-yellow-500/10', borderColor: 'border-yellow-500/30' },
+  assigned:      { label: 'Assigned',     icon: '👷', color: 'text-blue-700',   bg: 'bg-blue-50',    bgColor: 'bg-indigo-500/10', borderColor: 'border-indigo-500/30' },
+  in_progress:   { label: 'In Progress',  icon: '🔧', color: 'text-orange-700', bg: 'bg-orange-50',  bgColor: 'bg-orange-500/10', borderColor: 'border-orange-500/30' },
+  resolved:      { label: 'Resolved',     icon: '✅', color: 'text-green-700',  bg: 'bg-green-50',   bgColor: 'bg-green-500/10',  borderColor: 'border-green-500/30'  },
+  closed:        { label: 'Closed',       icon: '🔒', color: 'text-slate-600',  bg: 'bg-slate-100',  bgColor: 'bg-slate-500/10',  borderColor: 'border-slate-500/30'  },
+  rejected:      { label: 'Rejected',     icon: '❌', color: 'text-red-700',    bg: 'bg-red-50',     bgColor: 'bg-red-500/10',    borderColor: 'border-red-500/30'    },
+  disputed:      { label: 'Disputed',     icon: '⚠️', color: 'text-red-700',    bg: 'bg-red-50',     bgColor: 'bg-red-500/10',    borderColor: 'border-red-500/30'    },
+  escalated:     { label: 'Escalated',    icon: '🚨', color: 'text-rose-700',   bg: 'bg-rose-50',    bgColor: 'bg-rose-500/10',   borderColor: 'border-rose-500/30'   },
+  reopened:      { label: 'Reopened',     icon: '🔄', color: 'text-orange-700', bg: 'bg-orange-50',  bgColor: 'bg-orange-500/10', borderColor: 'border-orange-500/30' },
+}
+
+// ── Status transition rules (officer) ────────────────────────────────────────
+export const ALLOWED_TRANSITIONS: Record<string, ComplaintStatus[]> = {
+  submitted:    ['acknowledged', 'rejected'],
+  acknowledged: ['in_progress', 'assigned', 'rejected'],
+  assigned:     ['in_progress', 'rejected'],
+  in_progress:  ['resolved', 'rejected'],
+  resolved:     ['closed'],
+}
+
+// ── Ward ──────────────────────────────────────────────────────────────────────
+// ward_id and ward_name are required (old shape — OfficerAuthPage, CitizenAuthPage)
 export interface Ward {
   ward_id: number
   ward_name: string
-  zone: string
-  health_score: number
-  health_grade: string
+  id?: number          // new shape alias
+  name?: string        // new shape alias
+  zone?: string
+  health_score?: number
+  health_grade?: string
   lat_center?: number
   lng_center?: number
 }
 
-export interface StatusHistory {
-  new_status: string
-  previous_status?: string
-  note?: string
-  changed_by?: string
-  created_at: string
-}
-
-// ── Complaint — all fields used across all pages ──────────────────────────────
-export interface Complaint {
-  complaint_id: string
-  title: string
-  description: string
-  description_translated?: string
-  category: string
-  sub_category?: string
-  status: string
-  urgency: string
-  department?: string
-
-  // People
-  citizen_id: string
-  citizen_name?: string
-  citizen_phone?: string
-  ward_id: number
-  ward_name?: string
-  officer_id?: string
-  officer_name?: string
-  officer_designation?: string
-
-  // Location
-  location_address?: string
-  location_lat?: number
-  location_lng?: number
-
-  // Media
-  photo_urls?: string[]
-  voice_audio_url?: string
-  original_language?: string
-
-  // AI
-  ai_summary?: string
-  ai_category_confidence?: number
-
-  // SLA
-  sla_deadline?: string
-  sla_remaining_seconds?: number
-
-  // Resolution
-  resolution_note?: string
-  disputed?: boolean
-  status_history?: StatusHistory[]
-
-  // Timestamps
-  created_at: string
-  resolved_at?: string
-  citizen_rating?: number
-}
-
-// ── Notification ──────────────────────────────────────────────────────────────
-export interface Notification {
-  notification_id: string
-  user_id: string
-  user_role: string
-  title: string
-  body: string
-  message?: string
-  type: string
-  is_read: boolean
-  complaint_id?: string
-  created_at: string
-}
-
-// ── Auth state ────────────────────────────────────────────────────────────────
-export interface AuthState {
-  token: string | null
-  role: 'citizen' | 'officer' | 'admin' | null
-  userId: string | null
-  fullName: string | null
-  wardId?: number | null
-  preferredLanguage: string
-  isLoading: boolean
-  citizen: Citizen | null
-  officer: Officer | null
-}
-
-export interface OTPState {
-  phone: string
-  role: 'citizen' | 'officer'
-  step: 'phone' | 'otp' | 'register'
-  countdown: number
-  isLoading: boolean
-  error: string | null
-  tempToken?: string
-}
-
-// ── Languages ─────────────────────────────────────────────────────────────────
-export type Language = {
-  code: string
-  name: string
-  nativeName: string
-  sarvam?: string
-  script: 'latin' | 'devanagari' | 'bengali' | 'tamil' | 'telugu' | 'gujarati' | 'kannada' | 'malayalam' | 'gurmukhi' | 'odia',
-  sttSupported?: boolean
-}
-
-export const SUPPORTED_LANGUAGES: Language[] = [
-  { code: 'en', name: 'English',   nativeName: 'English',  sarvam: 'en-IN', script: 'latin'      },
-  { code: 'hi', name: 'Hindi',     nativeName: 'हिन्दी',   sarvam: 'hi-IN', script: 'devanagari' },
-  { code: 'bn', name: 'Bengali',   nativeName: 'বাংলা',    sarvam: 'bn-IN', script: 'bengali'    },
-  { code: 'ta', name: 'Tamil',     nativeName: 'தமிழ்',    sarvam: 'ta-IN', script: 'tamil'      },
-  { code: 'te', name: 'Telugu',    nativeName: 'తెలుగు',   sarvam: 'te-IN', script: 'telugu'     },
-  { code: 'mr', name: 'Marathi',   nativeName: 'मराठी',    sarvam: 'mr-IN', script: 'devanagari' },
-  { code: 'gu', name: 'Gujarati',  nativeName: 'ગુજરાતી',  sarvam: 'gu-IN', script: 'gujarati'   },
-  { code: 'kn', name: 'Kannada',   nativeName: 'ಕನ್ನಡ',    sarvam: 'kn-IN', script: 'kannada'    },
-  { code: 'ml', name: 'Malayalam', nativeName: 'മലയാളം',   sarvam: 'ml-IN', script: 'malayalam'  },
-  { code: 'pa', name: 'Punjabi',   nativeName: 'ਪੰਜਾਬੀ',   sarvam: 'pa-IN', script: 'gurmukhi'   },
-  { code: 'or', name: 'Odia',      nativeName: 'ଓଡ଼ିଆ',    sarvam: 'od-IN', script: 'odia'       },
-]
-
-// ── Category config ───────────────────────────────────────────────────────────
-export type CategoryConfig = {
-  label: string
-  icon: string
-  color: string   // Tailwind bg class
-  dept: string
-}
-
-export const CATEGORY_CONFIG: Record<string, CategoryConfig> = {
-  // ── PRIMARY KEYS — exactly what complaint_pipeline.py writes to DB ──────────
-  // These must match SLA_TABLE keys in complaint_pipeline.py:
-  //   pothole, garbage, sewage, water_supply, streetlight,
-  //   tree, stray_animals, encroachment, noise, other
-  pothole:       { label: 'Pothole',           icon: '🕳️', color: 'bg-orange-100',  dept: 'Roads & Drainage'           },
-  garbage:       { label: 'Garbage',           icon: '🗑️', color: 'bg-green-100',   dept: 'Public Health & Sanitation' },
-  sewage:        { label: 'Sewage',            icon: '💧', color: 'bg-blue-100',    dept: 'Public Health & Sanitation' },
-  water_supply:  { label: 'Water Supply',      icon: '🚰', color: 'bg-cyan-100',    dept: 'Water Supply'               }, // ← WAS MISSING (was 'water')
-  streetlight:   { label: 'Street Light',      icon: '💡', color: 'bg-yellow-100',  dept: 'Roads & Drainage'           },
-  tree:          { label: 'Tree / Vegetation', icon: '🌳', color: 'bg-emerald-100', dept: 'Horticulture'               },
-  stray_animals: { label: 'Stray Animals',     icon: '🐕', color: 'bg-amber-100',   dept: 'Health Services'            },
-  encroachment:  { label: 'Encroachment',      icon: '🚧', color: 'bg-red-100',     dept: 'Planning & Development'     },
-  noise:         { label: 'Noise Pollution',   icon: '🔊', color: 'bg-purple-100',  dept: 'Public Health & Sanitation' },
-  other:         { label: 'Other',             icon: '📋', color: 'bg-gray-100',    dept: 'Administration'             },
-
-  // ── LEGACY / ALIAS KEYS — old category values still in DB or used elsewhere ─
-  // Kept so complaints seeded with old categories still display correctly
-  water:         { label: 'Water Supply',      icon: '🚰', color: 'bg-cyan-100',    dept: 'Water Supply'               },
-  pollution:     { label: 'Pollution',         icon: '🌫️', color: 'bg-slate-100',   dept: 'Public Health & Sanitation' },
-  road_damage:   { label: 'Road Damage',       icon: '🛣️', color: 'bg-stone-100',   dept: 'Roads & Drainage'           },
-  building:      { label: 'Building / Safety', icon: '🏗️', color: 'bg-rose-100',    dept: 'Building & Petrol'          },
-  // Old setup script categories — map to nearest equivalent
-  roads_and_footpaths:    { label: 'Roads',         icon: '🛣️', color: 'bg-stone-100',   dept: 'Roads & Drainage'           },
-  sanitation_and_garbage: { label: 'Sanitation',    icon: '🗑️', color: 'bg-green-100',   dept: 'Public Health & Sanitation' },
-  drainage_and_flooding:  { label: 'Drainage',      icon: '💧', color: 'bg-blue-100',    dept: 'Public Health & Sanitation' },
-  street_lighting:        { label: 'Street Light',  icon: '💡', color: 'bg-yellow-100',  dept: 'Roads & Drainage'           },
-  parks_and_gardens:      { label: 'Parks',         icon: '🌳', color: 'bg-emerald-100', dept: 'Horticulture'               },
-  illegal_construction:   { label: 'Encroachment',  icon: '🚧', color: 'bg-red-100',     dept: 'Planning & Development'     },
-  noise_and_pollution:    { label: 'Noise',         icon: '🔊', color: 'bg-purple-100',  dept: 'Public Health & Sanitation' },
-}
-
-// ── Status config ─────────────────────────────────────────────────────────────
-export type StatusConfig = {
-  label: string
-  icon: string
-  color: string   // Tailwind text class
-  bg: string      // Tailwind bg class
-}
-
-export const STATUS_CONFIG: Record<string, StatusConfig> = {
-  submitted:     { label: 'Submitted',    icon: '📝', color: 'text-slate-700',  bg: 'bg-slate-100'  },
-  pending:       { label: 'Pending',      icon: '⏳', color: 'text-amber-700',  bg: 'bg-amber-50'   },
-  ai_classified: { label: 'AI Processed', icon: '🤖', color: 'text-purple-700', bg: 'bg-purple-50'  },
-  assigned:      { label: 'Assigned',     icon: '👷', color: 'text-blue-700',   bg: 'bg-blue-50'    },
-  acknowledged:  { label: 'Acknowledged', icon: '👀', color: 'text-indigo-700', bg: 'bg-indigo-50'  },
-  in_progress:   { label: 'In Progress',  icon: '🔧', color: 'text-orange-700', bg: 'bg-orange-50'  },
-  resolved:      { label: 'Resolved',     icon: '✅', color: 'text-green-700',  bg: 'bg-green-50'   },
-  closed:        { label: 'Closed',       icon: '🔒', color: 'text-slate-600',  bg: 'bg-slate-100'  },
-  disputed:      { label: 'Disputed',     icon: '⚠️', color: 'text-red-700',    bg: 'bg-red-50'     },
-  escalated:     { label: 'Escalated',    icon: '🚨', color: 'text-rose-700',   bg: 'bg-rose-50'    },
-  reopened:      { label: 'Reopened',     icon: '🔄', color: 'text-orange-700', bg: 'bg-orange-50'  },
-}
-
-// ── Urgency config ────────────────────────────────────────────────────────────
-export type UrgencyConfig = {
-  label: string
-  icon: string
-  color: string    // Tailwind text class
-  bg: string       // Tailwind bg class
-  border: string   // Tailwind border-color class
-  priority: number // 1 = highest
-}
-
-export const URGENCY_CONFIG: Record<string, UrgencyConfig> = {
-  critical: { label: 'Critical', icon: '🚨', color: 'text-red-700',    bg: 'bg-red-100',    border: 'border-red-500',    priority: 1 },
-  high:     { label: 'High',     icon: '🔴', color: 'text-orange-700', bg: 'bg-orange-100', border: 'border-orange-500', priority: 2 },
-  medium:   { label: 'Medium',   icon: '🟡', color: 'text-amber-700',  bg: 'bg-amber-100',  border: 'border-amber-400',  priority: 3 },
-  low:      { label: 'Low',      icon: '🟢', color: 'text-green-700',  bg: 'bg-green-100',  border: 'border-green-400',  priority: 4 },
-}
-
-// ── MCD org structure ─────────────────────────────────────────────────────────
-
-export const MCD_DESIGNATIONS = [
+// ── MCD Officer constants ─────────────────────────────────────────────────────
+export const MCD_DESIGNATIONS: string[] = [
   'Commissioner',
   'Additional Commissioner',
   'Joint Commissioner',
   'Deputy Commissioner',
   'Assistant Commissioner',
   'Executive Engineer',
+  'Superintending Engineer',
+  'Chief Engineer',
   'Assistant Engineer',
   'Junior Engineer',
+  'Senior Engineer',
+  'Health Officer',
   'Sanitary Inspector',
   'Health Inspector',
-  'Senior Engineer',
+  'Ward Officer',
+  'Zonal Officer',
   'Supervisor',
-  'Sanitation Worker',
   'Beat Officer',
+  'Sanitation Worker',
   'Driver',
   'Other',
-] as const
+]
 
-export type MCDDesignation = typeof MCD_DESIGNATIONS[number]
-
-export const MCD_DEPARTMENTS = [
+export const MCD_DEPARTMENTS: string[] = [
+  'Roads & Drainage',
   'Public Health & Sanitation',
   'Water Supply',
-  'Roads & Drainage',
+  'Horticulture',
+  'Waste Management',
   'Planning & Development',
+  'Building & Petrol',
+  'Health Services',
+  'Enforcement',
+  'Animal Husbandry',
+  'Electrical Engineering',
   'Finance & Accounts',
   'Administration',
-  'Personnel',
   'Legal',
-  'Vigilance',
-  'Horticulture',
-  'Parks & Gardens',
-  'Building & Petrol',
-  'Waste Management',
-  'Health Services',
+  'IT Department',
   'Other',
-] as const
+]
 
-export type MCDDepartment = typeof MCD_DEPARTMENTS[number]
+export const MCD_ZONES: string[] = [
+  'Central', 'South', 'North', 'East', 'West', 'New Delhi', 'Shahdara',
+]
 
-export const MCD_ZONES = [
-  'Central',
-  'South',
-  'North',
-  'East',
-  'West',
-  'New Delhi',
-  'Shahdara',
-] as const
+// ── Supported Languages ───────────────────────────────────────────────────────
+export interface SupportedLanguage {
+  code: string
+  name: string
+  nativeName: string
+  sarvam: string
+  sttSupported: boolean
+  script?: string
+}
 
-export type MCDZone = typeof MCD_ZONES[number]
+export const SUPPORTED_LANGUAGES: SupportedLanguage[] = [
+  { code: 'en', name: 'English',    nativeName: 'English',    sarvam: 'en-IN', sttSupported: true,  script: 'latin'      },
+  { code: 'hi', name: 'Hindi',      nativeName: 'हिन्दी',       sarvam: 'hi-IN', sttSupported: true,  script: 'devanagari' },
+  { code: 'bn', name: 'Bengali',    nativeName: 'বাংলা',        sarvam: 'bn-IN', sttSupported: true,  script: 'bengali'    },
+  { code: 'ta', name: 'Tamil',      nativeName: 'தமிழ்',        sarvam: 'ta-IN', sttSupported: true,  script: 'tamil'      },
+  { code: 'te', name: 'Telugu',     nativeName: 'తెలుగు',       sarvam: 'te-IN', sttSupported: true,  script: 'telugu'     },
+  { code: 'mr', name: 'Marathi',    nativeName: 'मराठी',        sarvam: 'mr-IN', sttSupported: true,  script: 'devanagari' },
+  { code: 'gu', name: 'Gujarati',   nativeName: 'ગુજરાતી',     sarvam: 'gu-IN', sttSupported: true,  script: 'gujarati'   },
+  { code: 'kn', name: 'Kannada',    nativeName: 'ಕನ್ನಡ',        sarvam: 'kn-IN', sttSupported: true,  script: 'kannada'    },
+  { code: 'ml', name: 'Malayalam',  nativeName: 'മലയാളം',      sarvam: 'ml-IN', sttSupported: true,  script: 'malayalam'  },
+  { code: 'pa', name: 'Punjabi',    nativeName: 'ਪੰਜਾਬੀ',       sarvam: 'pa-IN', sttSupported: true,  script: 'gurmukhi'   },
+  { code: 'or', name: 'Odia',       nativeName: 'ଓଡ଼ିଆ',        sarvam: 'od-IN', sttSupported: false, script: 'odia'       },
+  { code: 'as', name: 'Assamese',   nativeName: 'অসমীয়া',      sarvam: 'as-IN', sttSupported: false, script: 'bengali'    },
+]
+
+// ── Notification ──────────────────────────────────────────────────────────────
+export interface Notification {
+  id?: string
+  notification_id?: string   // old shape
+  user_id?: string
+  user_role?: string
+  type: 'status_update' | 'assignment' | 'sla_warning' | 'sla_breach' | 'system' | string
+  title: string
+  message?: string
+  body?: string              // old shape alias
+  is_read: boolean
+  complaint_id?: string
+  created_at: string
+}
+
+// ── Complaint interfaces ──────────────────────────────────────────────────────
+export interface ComplaintTimeline {
+  id?: string
+  status?: string
+  new_status?: string        // old shape
+  previous_status?: string   // old shape
+  note?: string
+  changed_by?: string        // old shape
+  created_at: string
+  actor_role?: 'citizen' | 'officer' | 'system'
+  actor_name?: string
+  icon?: string
+}
+
+export interface Complaint {
+  // complaint_id is required — used in .includes() and routing across pages
+  id?: string
+  complaint_id: string
+
+  // People
+  citizen_id?: string
+  citizen_name?: string
+  citizen_phone?: string
+  officer_id?: string | null
+  officer_name?: string | null
+  officer_designation?: string
+
+  // Content
+  title: string
+  description: string
+  description_translated?: string
+  category: string           // string — DB may have legacy values
+  sub_category?: string
+  department?: string
+
+  // Status & priority — string for full flexibility (new + old statuses)
+  status: string
+  urgency?: string           // old shape
+  priority?: string          // new shape alias
+  ai_summary?: string
+  ai_category_confidence?: number
+
+  // Location
+  location_address?: string
+  location_lat?: number
+  location_lng?: number
+  ward_id?: number
+  ward_name?: string
+
+  // Media
+  photos?: string[]
+  photo_urls?: string[]      // old shape alias
+  voice_audio_url?: string
+  original_language?: string
+  voice_transcript?: string | null
+
+  // SLA
+  sla_deadline?: string | null
+  sla_remaining_seconds?: number | null
+
+  // Resolution
+  resolution_note?: string
+  disputed?: boolean
+  citizen_rating?: number
+
+  // Timestamps
+  created_at: string
+  updated_at?: string
+  resolved_at?: string
+
+  // Timeline / history
+  timeline?: ComplaintTimeline[]
+  status_history?: ComplaintTimeline[]   // old shape alias
+}
 
 // ── SLA hours ─────────────────────────────────────────────────────────────────
-// Keys match CATEGORY_CONFIG primary keys
 export const SLA_HOURS: Record<string, [number, number, number, number]> = {
   pothole:       [24,  48,  96, 168],
   garbage:       [6,   12,  24,  48],
   sewage:        [6,   24,  48,  96],
-  water_supply:  [6,   24,  72,  96], // ← was 'water'
-  water:         [6,   24,  72,  96], // legacy alias
+  water_supply:  [6,   24,  72,  96],
   streetlight:   [24,  72, 120, 240],
   tree:          [24,  48, 120, 240],
   stray_animals: [12,  24,  72, 120],
   encroachment:  [48,  96, 168, 336],
   noise:         [12,  24,  72, 120],
-  pollution:     [24,  48,  96, 168],
-  road_damage:   [24,  72, 120, 240],
-  building:      [12,  24,  72, 120],
   other:         [48,  96, 168, 336],
 }
 
-// ── Alert types ───────────────────────────────────────────────────────────────
+// ── Alert / Predictive types ──────────────────────────────────────────────────
 export type AlertSeverity = 'critical' | 'high' | 'medium' | 'low'
 export type AlertType =
-  | 'surge'
-  | 'sla_breach'
-  | 'ward_neglect'
-  | 'category_spike'
-  | 'officer_overload'
-  | 'inactivity'
+  | 'surge' | 'sla_breach' | 'ward_neglect'
+  | 'category_spike' | 'officer_overload' | 'inactivity'
 
 export interface PredictiveAlert {
   alert_id: string
@@ -372,4 +444,66 @@ export interface WeeklyDigest {
   best_wards?: Array<{ ward_id: number; ward_name: string; zone: string; health_score: number; health_grade: string }>
   narrative_summary?: string
   generated_at: string
+}
+
+// ── Citizen / Officer entities ────────────────────────────────────────────────
+export interface Citizen {
+  citizen_id: string
+  full_name: string
+  phone_number: string
+  email?: string
+  ward_id: number
+  ward_name?: string
+  home_address?: string
+  preferred_language: string
+  profile_photo_url?: string
+  total_complaints: number
+  resolved_complaints: number
+  created_at: string
+}
+
+export interface Officer {
+  officer_id: string
+  full_name: string
+  employee_id: string
+  phone_number: string
+  designation: string
+  department: string
+  ward_id?: number
+  ward_name?: string
+  zone?: string
+  preferred_language: string
+  total_assigned: number
+  total_resolved: number
+  avg_resolution_hours?: number
+  sla_compliance_rate?: number
+  citizen_rating_avg?: number
+  performance_score?: number
+}
+
+// ── API wrappers ──────────────────────────────────────────────────────────────
+export interface PaginatedResponse<T> {
+  items: T[]
+  total: number
+  page: number
+  page_size: number
+  pages: number
+}
+
+export interface SubmitComplaintRequest {
+  title: string
+  description: string
+  category: string
+  original_language?: string
+  location_address: string
+  location_lat: number
+  location_lng: number
+  photos?: string[]
+  voice_transcript?: string | null
+}
+
+export interface SubmitComplaintResponse {
+  complaint_id: string
+  status: string
+  message?: string
 }

@@ -1,13 +1,15 @@
 /**
- * NagarMind v4 — ChatIntakePage (Full Multilingual)
+ * NagarMind v5 — ChatIntakePage (Full Multilingual, Upgraded)
  *
- * Features:
- * - All UI text in selected language (hardcoded translations)
- * - Bot replies in selected language
- * - Voice input in selected language via Groq Whisper
- * - Live preview in selected language + English translation
- * - Final bilingual review with inline edit (both lang + English)
- * - Smooth stage transitions and widget embedding
+ * Improvements:
+ * 1. Greeting opens with language selector first
+ * 2. LocationPicker component with full drag/move pin
+ * 3. Yes/No confirmation buttons in user's chosen language
+ * 4. Jump-back to any prior field via preview panel edit buttons
+ * 5. Photo upload step identical to SubmitComplaintPage
+ * 6. Bilingual final review — edit either side, both sync
+ * 7. Context-aware voice input at every stage
+ * 8. Concise LLM (2-3 line max responses)
  */
 
 import {
@@ -18,159 +20,163 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   ArrowLeft, Mic, MicOff, Send, Loader2, FileText, Globe,
   Eye, EyeOff, Edit3, AlignLeft, Tag, MapPin, Camera,
-  CheckCircle2, X, Image as ImageIcon, Navigation, Check,
-  ChevronDown
+  CheckCircle2, X, Image as ImageIcon, Check,
+  ChevronDown, ArrowRight, Languages, RotateCcw
 } from 'lucide-react'
 import { v4 as uuidv4 } from 'uuid'
 import { AppShell } from '@/components/common/AppShell'
+import { LocationPicker } from '@/components/other/LocationPicker'
 import { api, uploadAPI, complaintsAPI } from '@/lib/api'
-import { SUPPORTED_LANGUAGES, CATEGORY_CONFIG } from '@/types'
+import { SUPPORTED_LANGUAGES, CATEGORY_CONFIG, type CategoryKey } from '@/types'
 import toast from 'react-hot-toast'
 
 // ── Nav ───────────────────────────────────────────────────────────────────────
 const NAV_ITEMS = [
-  { to: '/citizen/dashboard', label: 'Home', icon: <span>🏠</span> },
-  { to: '/citizen/submit', label: 'Report', icon: <span>📝</span> },
-  { to: '/citizen/complaints', label: 'My Issues', icon: <span>📋</span> },
-  { to: '/citizen/digest', label: 'Digest', icon: <span>📊</span> },
-  { to: '/citizen/profile', label: 'Profile', icon: <span>👤</span> },
+  { to: '/citizen/dashboard', label: 'Home',     icon: <span>🏠</span> },
+  { to: '/citizen/submit',    label: 'Report',   icon: <span>📝</span> },
+  { to: '/citizen/complaints',label: 'My Issues',icon: <span>📋</span> },
+  { to: '/citizen/digest',    label: 'Digest',   icon: <span>📊</span> },
+  { to: '/citizen/profile',   label: 'Profile',  icon: <span>👤</span> },
 ]
 
-// ── Multilingual UI strings (static, hardcoded) ───────────────────────────────
+// ── Multilingual UI strings ───────────────────────────────────────────────────
 const UI: Record<string, Record<string, string>> = {
-  title: {
-    en: 'Report via AI Chat', hi: 'AI चैट से रिपोर्ट करें', bn: 'AI চ্যাটে রিপোর্ট করুন',
-    ta: 'AI மூலம் புகாரளிக்கவும்', te: 'AI ద్వారా రిపోర్ట్ చేయండి', mr: 'AI चॅटद्वारे रिपोर्ट करा',
-    gu: 'AI ચેટ દ્વારા રિપોર્ટ કરો', kn: 'AI ಮೂಲಕ ವರದಿ ಮಾಡಿ', ml: 'AI ചാറ്റ് വഴി റിപ്പോർട്ട് ചെയ്യുക',
-    pa: 'AI ਚੈਟ ਰਾਹੀਂ ਰਿਪੋਰਟ ਕਰੋ', or: 'AI ଚ୍ୟାଟ ଦ୍ୱାରା ରିପୋର୍ଟ କରନ୍ତୁ', as: 'AI চেটৰ জৰিয়তে ৰিপোৰ্ট কৰক',
+  selectLang: {
+    en: 'Choose your language to get started', hi: 'शुरू करने के लिए अपनी भाषा चुनें',
+    bn: 'শুরু করতে আপনার ভাষা বেছে নিন', ta: 'தொடங்க உங்கள் மொழியை தேர்ந்தெடுக்கவும்',
+    te: 'ప్రారంభించడానికి మీ భాష ఎంచుకోండి', mr: 'सुरू करण्यासाठी आपली भाषा निवडा',
+    gu: 'શરૂ કરવા માટે તમારી ભાષા પસંદ કરો', kn: 'ಪ್ರಾರಂಭಿಸಲು ನಿಮ್ಮ ಭಾಷೆ ಆಯ್ಕೆಮಾಡಿ',
+    ml: 'ആരംഭിക്കാൻ നിങ്ങളുടെ ഭാഷ തിരഞ്ഞെടുക്കുക', pa: 'ਸ਼ੁਰੂ ਕਰਨ ਲਈ ਆਪਣੀ ਭਾਸ਼ਾ ਚੁਣੋ',
+    or: 'ଆରମ୍ଭ କରିବାକୁ ଆପଣଙ୍କ ଭାଷା ବ୍ଯବହାର କରନ୍ତୁ', as: 'আৰম্ভ কৰিবলৈ আপোনাৰ ভাষা বাছক',
   },
-  subtitle: {
-    en: 'NagarMind guides you step by step', hi: 'NagarMind आपको चरण दर चरण मार्गदर्शन करता है',
-    bn: 'NagarMind আপনাকে ধাপে ধাপে গাইড করে', ta: 'NagarMind உங்களை படிப்படியாக வழிநடத்துகிறது',
-    te: 'NagarMind మిమ్మల్ని దశలవారీగా మార్గనిర్దేశం చేస్తుంది', mr: 'NagarMind तुम्हाला पायरीपायरीने मार्गदर्शन करतो',
-    gu: 'NagarMind તમને પગલા-પ્રક્રિયા માર્ગ-નિર્દેશ આપે છે', kn: 'NagarMind ನಿಮ್ಮನ್ನು ಹಂತ ಹಂತವಾಗಿ ಮಾರ್ಗದರ್ಶನ ಮಾಡುತ್ತದೆ',
-    ml: 'NagarMind നിങ്ങളെ ഘട്ടം ഘട്ടമായി നയിക്കുന്നു', pa: 'NagarMind ਤੁਹਾਨੂੰ ਕਦਮ ਦਰ ਕਦਮ ਮਾਰਗਦਰਸ਼ਨ ਕਰਦਾ ਹੈ',
-    or: 'NagarMind ଆପଣଙ୍କୁ ପଦ‌ ପଦ ମାର୍ଗ ଦର୍ଶନ ଦିଏ', as: 'NagarMind আপোনাক পদক্ষেপে পদক্ষেপে পথ নিৰ্দেশনা দিয়ে',
+  yes: {
+    en: '✅ Yes', hi: '✅ हाँ', bn: '✅ হ্যাঁ', ta: '✅ ஆம்', te: '✅ అవును',
+    mr: '✅ होय', gu: '✅ હા', kn: '✅ ಹೌದು', ml: '✅ ഉം', pa: '✅ ਹਾਂ',
+    or: '✅ ହଁ', as: '✅ হয়',
   },
-  typePlaceholder: {
-    en: 'Type or hold mic to speak...', hi: 'यहाँ लिखें या माइक दबाएं...',
-    bn: 'এখানে লিখুন বা মাইক চেপে বলুন...', ta: 'இங்கே தட்டச்சு செய்யுங்கள் அல்லது மைக்கை பிடிக்கவும்...',
-    te: 'ఇక్కడ టైప్ చేయండి లేదా మైక్ నొక్కండి...', mr: 'येथे टाईप करा किंवा मायक्रोफोन दाबा...',
-    gu: 'અહીં ટાઇપ કરો અથવા માઇક દબાવો...', kn: 'ಇಲ್ಲಿ ಟೈಪ್ ಮಾಡಿ ಅಥವಾ ಮೈಕ್ ಒತ್ತಿ...',
-    ml: 'ഇവിടെ ടൈപ്പ് ചെയ്യുക അല്ലെങ്കിൽ മൈക്ക് പിടിക്കുക...', pa: 'ਇੱਥੇ ਲਿਖੋ ਜਾਂ ਮਾਈਕ ਦਬਾਓ...',
-    or: 'ଏଠାରେ ଟାଇପ୍ କରନ୍ତୁ ବା ମାଇକ୍ ଦବାନ୍ତୁ...', as: 'ইয়াত টাইপ কৰক বা মাইক ধৰক...',
+  no: {
+    en: '❌ No', hi: '❌ नहीं', bn: '❌ না', ta: '❌ இல்லை', te: '❌ కాదు',
+    mr: '❌ नाही', gu: '❌ ના', kn: '❌ ಇಲ್ಲ', ml: '❌ ഇല്ല', pa: '❌ ਨਹੀਂ',
+    or: '❌ ନା', as: '❌ নহয়',
   },
-  send: {
-    en: 'Send', hi: 'भेजें', bn: 'পাঠান', ta: 'அனுப்பு', te: 'పంపు', mr: 'पाठवा',
-    gu: 'મોકલો', kn: 'ಕಳುಹಿಸಿ', ml: 'അയക്കുക', pa: 'ਭੇਜੋ', or: 'ପଠାନ୍ତୁ', as: 'পঠাওক',
+  submit: {
+    en: '🚀 Submit Complaint', hi: '🚀 शिकायत दर्ज करें', bn: '🚀 অভিযোগ জমা দিন',
+    ta: '🚀 புகார் சமர்ப்பி', te: '🚀 ఫిర్యాదు సమర్పించు', mr: '🚀 तक्रार दाखल करा',
+    gu: '🚀 ફરિયાદ સબમિટ', kn: '🚀 ದೂರು ಸಲ್ಲಿಸಿ', ml: '🚀 പരാതി സমർപ്പിക്കുക',
+    pa: '🚀 ਸ਼ਿਕਾਇਤ ਦਰਜ', or: '🚀 ଅଭିଯୋଗ ଦାଖଲ', as: '🚀 অভিযোগ দাখিল',
   },
-  livePreview: {
-    en: 'Live Preview', hi: 'लाइव पूर्वावलोकन', bn: 'লাইভ প্রিভিউ', ta: 'நேரடி முன்னோட்டம்',
-    te: 'లైవ్ ప్రివ్యూ', mr: 'लाइव्ह पूर्वावलोकन', gu: 'લાઇવ પ્રિવ્યૂ', kn: 'ಲೈವ್ ಪ್ರಿವ್ಯೂ',
-    ml: 'ലൈവ് പ്രിവ്യൂ', pa: 'ਲਾਈਵ ਪ੍ਰੀਵਿਊ', or: 'ଲାଇଭ ପ୍ରିଭ୍ୟୁ', as: 'লাইভ প্ৰিভিউ',
+  editThis: {
+    en: 'Edit', hi: 'बदलें', bn: 'সম্পাদনা', ta: 'திருத்து', te: 'సవరించు', mr: 'संपादित करा',
+    gu: 'સુધારો', kn: 'ಸಂಪಾದಿಸಿ', ml: 'തിരുത്തുക', pa: 'ਬਦਲੋ', or: 'ସଂଶୋଧନ', as: 'সম্পাদনা',
   },
-  issueTitle: {
-    en: 'Issue Title', hi: 'समस्या शीर्षक', bn: 'সমস্যার শিরোনাম', ta: 'பிரச்சினை தலைப்பு',
-    te: 'సమస్య శీర్షిక', mr: 'समस्येचे शीर्षक', gu: 'સમસ્યાનું શીર્ષક', kn: 'ಸಮಸ್ಯೆಯ ಶೀರ್ಷಿಕೆ',
-    ml: 'പ്രശ്നത്തിന്റെ തലക്കെട്ട്', pa: 'ਸਮੱਸਿਆ ਦਾ ਸਿਰਲੇਖ', or: 'ସମସ୍ୟାର ଶୀର୍ଷକ', as: 'সমস্যাৰ শিৰোনাম',
-  },
-  description: {
-    en: 'Description', hi: 'विवरण', bn: 'বিবরণ', ta: 'விளக்கம்', te: 'వివరణ', mr: 'वर्णन',
-    gu: 'વર્ણન', kn: 'ವಿವರಣೆ', ml: 'വിവരണം', pa: 'ਵਿਵਰਣ', or: 'ବିବରଣ', as: 'বিৱৰণ',
-  },
-  category: {
-    en: 'Category', hi: 'श्रेणी', bn: 'বিভাগ', ta: 'வகை', te: 'వర్గం', mr: 'श्रेणी',
-    gu: 'શ્રેણી', kn: 'ವರ್ಗ', ml: 'വിഭാഗം', pa: 'ਸ਼੍ਰੇਣੀ', or: 'ବର୍ଗ', as: 'শ্ৰেণী',
-  },
-  location: {
-    en: 'Location', hi: 'स्थान', bn: 'অবস্থান', ta: 'இடம்', te: 'స్థానం', mr: 'ठिकाण',
-    gu: 'સ્થળ', kn: 'ಸ್ಥಳ', ml: 'സ്ഥലം', pa: 'ਸਥਾਨ', or: 'ସ୍ଥାନ', as: 'স্থান',
-  },
-  evidence: {
-    en: 'Evidence Photos', hi: 'सबूत की फ़ोटो', bn: 'প্রমাণের ছবি', ta: 'சான்று புகைப்படங்கள்',
-    te: 'సాక్ష్య ఫోటోలు', mr: 'पुरावा फोटो', gu: 'પ્રમાણ ફોટો', kn: 'ಸಾಕ್ಷ್ಯ ಫೋಟೋಗಳು',
-    ml: 'തെളിവ് ഫോട്ടോകൾ', pa: 'ਸਬੂਤ ਫੋਟੋ', or: 'ପ୍ରମାଣ ଫଟୋ', as: 'প্ৰমাণৰ ফটো',
+  skip: {
+    en: 'Skip →', hi: 'छोड़ें →', bn: 'এড়িয়ে যান →', ta: 'தவிர்க்க →', te: 'దాటవేయి →',
+    mr: 'वगळा →', gu: 'છોડો →', kn: 'ಬಿಟ್ಟುಬಿಡಿ →', ml: 'ഒഴിവാക്കുക →', pa: 'ਛੱਡੋ →',
+    or: 'ଛାଡ଼ନ୍ତୁ →', as: 'এৰক →',
   },
   confirmLocation: {
-    en: 'Confirm This Location', hi: 'यह स्थान पुष्टि करें', bn: 'এই অবস্থান নিশ্চিত করুন',
-    ta: 'இந்த இடத்தை உறுதிப்படுத்துக', te: 'ఈ స్థానాన్ని నిర్ధారించండి', mr: 'हे ठिकाण पुष्टी करा',
-    gu: 'આ સ્થળ કન્ફર્મ કરો', kn: 'ಈ ಸ್ಥಳ ದೃಢಪಡಿಸಿ', ml: 'ഈ സ്ഥലം സ്ഥിരീകരിക്കുക',
-    pa: 'ਇਹ ਸਥਾਨ ਪੁਸ਼ਟੀ ਕਰੋ', or: 'ଏହି ସ୍ଥାନ ନିଶ୍ଚିତ କରନ୍ତୁ', as: 'এই স্থান নিশ্চিত কৰক',
-  },
-  skipPhotos: {
-    en: 'Skip Photos', hi: 'फ़ोटो छोड़ें', bn: 'ফটো এড়িয়ে যান', ta: 'படங்களைத் தவிர்க்கவும்',
-    te: 'ఫోటోలు దాటవేయి', mr: 'फोटो वगळा', gu: 'ફોટો ছোড়ો', kn: 'ಫೋಟೋ ಬಿಟ್ಟುಬಿಡಿ',
-    ml: 'ഫോട്ടോ ഒഴിവാക്കുക', pa: 'ਫੋਟੋ ਛੱਡੋ', or: 'ଫଟୋ ଛାଡ଼ନ୍ତୁ', as: 'ফটো এৰক',
+    en: '📍 Confirm Location', hi: '📍 स्थान की पुष्टि करें', bn: '📍 অবস্থান নিশ্চিত করুন',
+    ta: '📍 இடம் உறுதிப்படுத்து', te: '📍 స్థానం నిర్ధారించు', mr: '📍 ठिकाण निश्चित करा',
+    gu: '📍 સ્થળ પુષ્ટિ', kn: '📍 ಸ್ಥಳ ದೃಢಪಡಿಸಿ', ml: '📍 സ്ഥലം സ്ഥിരീകരിക്കുക',
+    pa: '📍 ਸਥਾਨ ਪੁਸ਼ਟੀ', or: '📍 ସ୍ଥାନ ନିଶ୍ଚିତ', as: '📍 স্থান নিশ্চিত',
   },
   addPhotos: {
-    en: 'Add Photos & Continue', hi: 'फ़ोटो जोड़ें और जारी रखें', bn: 'ছবি যোগ করুন এবং চালিয়ে যান',
-    ta: 'படங்கள் சேர்த்து தொடரவும்', te: 'ఫోటోలు జోడించి కొనసాగించు', mr: 'फोटो जोडा आणि पुढे जा',
-    gu: 'ફોટો ઉમેરો અને ચાલુ રાખો', kn: 'ಫೋಟೋ ಸೇರಿಸಿ ಮುಂದೆ ಹೋಗಿ', ml: 'ഫോട്ടോ ചേർക്കുക, തുടരുക',
-    pa: 'ਫੋਟੋ ਜੋੜੋ ਅਤੇ ਜਾਰੀ ਰਖੋ', or: 'ଫଟୋ ଯୋଡ଼ନ୍ତୁ ଓ ଜାରି ରଖନ୍ତୁ', as: 'ফটো যোগ কৰক আৰু আগবাঢ়ক',
+    en: '📸 Add Photos & Continue', hi: '📸 फ़ोटो जोड़ें और जारी रखें',
+    bn: '📸 ছবি যোগ করুন এবং চালিয়ে যান', ta: '📸 படங்கள் சேர்த்து தொடரவும்',
+    te: '📸 ఫోటోలు జోడించి కొనసాగించు', mr: '📸 फोटो जोडा आणि पुढे जा',
+    gu: '📸 ફોટો ઉમેરો', kn: '📸 ಫೋಟೋ ಸೇರಿಸಿ', ml: '📸 ഫോട്ടോ ചേർക്കുക',
+    pa: '📸 ਫੋਟੋ ਜੋੜੋ', or: '📸 ଫଟୋ ଯୋଡ଼ନ୍ତୁ', as: '📸 ফটো যোগ কৰক',
+  },
+  skipPhotos: {
+    en: 'Skip, no photos', hi: 'छोड़ें, फ़ोटो नहीं', bn: 'এড়িয়ে যান',
+    ta: 'தவிர்க்கவும்', te: 'ఫోటోలు వద్దు', mr: 'फोटो नको',
+    gu: 'ફોટો નહીં', kn: 'ಫೋಟೋ ಬೇಡ', ml: 'ഫോട്ടോ വേണ്ട',
+    pa: 'ਫੋਟੋ ਨਹੀਂ', or: 'ଫଟୋ ନାହିଁ', as: 'ফটো নাই',
   },
   submittedTitle: {
-    en: 'Complaint Submitted!', hi: 'शिकायत दर्ज हुई!', bn: 'অভিযোগ জমা হয়েছে!',
-    ta: 'புகார் சமர்ப்பிக்கப்பட்டது!', te: 'ఫిర్యాదు సమర్పించబడింది!', mr: 'तक्रार दाखल झाली!',
-    gu: 'ફરિયાદ સబમિટ!', kn: 'ದೂರು ಸಲ್ಲಿಸಲಾಯಿತು!', ml: 'പരാതി സമർപ്പിച്ചു!',
-    pa: 'ਸ਼ਿਕਾਇਤ ਦਰਜ!', or: 'ଅଭିଯୋଗ ଦାଖଲ!', as: 'অভিযোগ দাখিল!',
+    en: '✅ Complaint Submitted!', hi: '✅ शिकायत दर्ज!', bn: '✅ অভিযোগ জমা!',
+    ta: '✅ புகார் சமர்ப்பிக்கப்பட்டது!', te: '✅ ఫిర్యాదు సమర్పించబడింది!',
+    mr: '✅ तक्रार दाखल!', gu: '✅ ફરિયાদ સબમિટ!', kn: '✅ ದೂರು ಸಲ್ಲಿಸಲಾಯಿತು!',
+    ml: '✅ പരാതി സമർപ്പിച്ചു!', pa: '✅ ਸ਼ਿਕਾਇਤ ਦਰਜ!', or: '✅ ଅଭିଯୋଗ ଦାଖଲ!', as: '✅ অভিযোগ দাখিল!',
   },
-  redirecting: {
-    en: 'Redirecting to tracking page...', hi: 'ट्रैकिंग पेज पर जा रहे हैं...',
-    bn: 'ট্র্যাকিং পেজে যাচ্ছে...', ta: 'கண்காணிப்பு பக்கத்திற்கு திருப்புகிறது...',
-    te: 'ట్రాకింగ్ పేజీకి మళ్ళిస్తోంది...', mr: 'ट्रॅकिंग पेजवर जात आहे...',
-    gu: 'ટ્રેકિંગ પૃષ્ઠ પર જઈ રહ્યા છે...', kn: 'ಟ್ರ್ಯಾಕಿಂಗ್ ಪೇಜ್‌ಗೆ ಮರುನಿರ್ದೇಶಿಸಲಾಗುತ್ತಿದೆ...',
-    ml: 'ട്രാക്കിംഗ് പേജിലേക്ക് പോകുന്നു...', pa: 'ਟਰੈਕਿੰਗ ਪੇਜ ਤੇ ਜਾ ਰਹੇ ਹਾਂ...',
-    or: 'ଟ୍ରାକିଙ୍ଗ ପୃଷ୍ଠায ଯାଉଛୁ...', as: 'ট্ৰেকিং পেজলৈ যাওঁ আছে...',
-  },
-  englishTranslation: {
-    en: 'English Version', hi: 'अंग्रेज़ी संस्करण', bn: 'ইংরেজি সংস্করণ', ta: 'ஆங்கில பதிப்பு',
-    te: 'ఇంగ్లీష్ వెర్షన్', mr: 'इंग्रजी आवृत्ती', gu: 'અંગ્રેજી સંસ્કરણ', kn: 'ಇಂಗ್ಲಿಷ್ ಆವೃತ್ತಿ',
-    ml: 'ഇംഗ്ലീഷ് പതിപ്പ്', pa: 'ਅੰਗਰੇਜ਼ੀ ਸੰਸਕਰਣ', or: 'ଇଂରାଜୀ ସଂସ୍କରଣ', as: 'ইংৰাজী সংস্কৰণ',
-  },
-  originalLang: {
-    en: 'Original Language', hi: 'मूल भाषा', bn: 'মূল ভাষা', ta: 'மூல மொழி',
-    te: 'మూల భాష', mr: 'मूळ भाषा', gu: 'મૂળ ભાષા', kn: 'ಮೂಲ ಭಾಷೆ',
-    ml: 'യഥാർഥ ഭാഷ', pa: 'ਮੂਲ ਭਾਸ਼ਾ', or: 'ମୂଳ ଭାଷା', as: 'মূল ভাষা',
+  typePlaceholder: {
+    en: 'Type here or hold mic...', hi: 'यहाँ लिखें या माइक दबाएं...',
+    bn: 'এখানে লিখুন বা মাইক ধরুন...', ta: 'இங்கே தட்டச்சு செய்யுங்கள்...',
+    te: 'ఇక్కడ టైప్ చేయండి...', mr: 'येथे टाईप करा...', gu: 'અહીં ટાઇપ કરો...',
+    kn: 'ಇಲ್ಲಿ ಟೈಪ್ ಮಾಡಿ...', ml: 'ഇവിടെ ടൈപ്പ് ചെയ്യുക...', pa: 'ਇੱਥੇ ਲਿਖੋ...',
+    or: 'ଏଠାରେ ଟାଇପ୍ /', as: 'ইয়াত টাইপ কৰক...',
   },
   finalReview: {
-    en: 'Final Review', hi: 'अंतिम समीक्षा', bn: 'চূড়ান্ত পর্যালোচনা', ta: 'இறுதி மதிப்பாய்வு',
-    te: 'చివరి సమీక్ష', mr: 'अंतिम आढावा', gu: 'અંતિમ સમીક્ષા', kn: 'ಅಂತಿಮ ಪರಿಶೀಲನೆ',
-    ml: 'അന്തിമ അവലോകനം', pa: 'ਅੰਤਿਮ ਸਮੀਖਿਆ', or: 'ଅଂତିମ ସମୀକ୍ଷା', as: 'চূড়ান্ত পর্যালোচনা',
+    en: '📋 Final Review', hi: '📋 अंतिम समीक्षा', bn: '📋 চূড়ান্ত পর্যালোচনা',
+    ta: '📋 இறுதி மதிப்பாய்வு', te: '📋 చివరి సమీక్ష', mr: '📋 अंतिम आढावा',
+    gu: '📋 અંતિમ સમીક્ષા', kn: '📋 ಅಂತಿಮ ಪರಿಶೀಲನೆ', ml: '📋 അന്തിമ അവലോകനം',
+    pa: '📋 ਅੰਤਿਮ ਸਮੀਖਿਆ', or: '📋 ଅଂତିମ ସମୀକ୍ଷା', as: '📋 চূড়ান্ত পৰ্যালোচনা',
   },
-  editField: {
-    en: 'Edit', hi: 'संपादित करें', bn: 'সম্পাদনা', ta: 'திருத்து', te: 'సవరించు', mr: 'संपादित करा',
-    gu: 'સંપાદિત કરો', kn: 'ಸಂಪಾದಿಸಿ', ml: 'തിരുത്തുക', pa: 'ਸੰਪਾਦਿਤ ਕਰੋ', or: 'ସଂଶୋଧନ', as: 'সম্পাদনা',
+  livePreview: {
+    en: '👀 Live Preview', hi: '👀 लाइव झलक', bn: '👀 লাইভ প্রিভিউ',
+    ta: '👀 நேரடி முன்னோட்டம்', te: '👀 లైవ్ ప్రివ్యూ', mr: '👀 थेट पूर्वावलोकन',
+    gu: '👀 લાઇવ પ્રિવ્યૂ', kn: '👀 ನೇರ ಪೂರ್ವವೀಕ್ಷಣೆ', ml: '👀 തത്സമയ പ്രിവ്യൂ',
+    pa: '👀 ਲਾਈਵ ਪ੍ਰੀਵਿਊ', or: '👀 ଲାଇଭ ପ୍ରିଭ୍ୟୁ', as: '👀 লাইভ প্ৰিভিউ',
   },
-  save: {
-    en: 'Save', hi: 'सहेजें', bn: 'সংরক্ষণ', ta: 'சேமி', te: 'సేవ్', mr: 'जतन करा',
-    gu: 'સાચવો', kn: 'ಉಳಿಸಿ', ml: 'സേവ്', pa: 'ਸੁਰੱਖਿਅਤ', or: 'ସଞ୍ଚୟ', as: 'সংৰক্ষণ',
+  fieldTitle: {
+    en: 'Issue Title', hi: 'समस्या का शीर्षक', bn: 'সমস্যার শিরোনাম',
+    ta: 'பிரச்சினை தலைப்பு', te: 'సమస్య శీర్షిక', mr: 'समस्येचे शीर्षक',
+    gu: 'સમસ્યાનું શીર્ષક', kn: 'ಸಮಸ್ಯೆಯ ಶೀರ್ಷಿಕೆ', ml: 'പ്രശ്‌നത്തിന്റെ ശീർഷകം',
+    pa: 'ਸਮੱਸਿਆ ਦਾ ਸਿਰਲੇਖ', or: 'ସମସ୍ୟାର ଶିରୋନାମ', as: 'সমস্যাৰ শিৰোনাম',
   },
-  cancel: {
-    en: 'Cancel', hi: 'रद्द करें', bn: 'বাতিল', ta: 'ரத்து', te: 'రద్దు', mr: 'रद्द करा',
-    gu: 'રદ કરો', kn: 'ರದ್ದು ಮಾಡಿ', ml: 'റദ്ദ് ചെയ്യുക', pa: 'ਰੱਦ ਕਰੋ', or: 'ବାତିଲ', as: 'বাতিল',
+  fieldDescription: {
+    en: 'Description', hi: 'विवरण', bn: 'বিবরণ',
+    ta: 'விவரம்', te: 'వివరణ', mr: 'वर्णन',
+    gu: 'વિવરણ', kn: 'ವಿವರಣೆ', ml: 'വിവരണം',
+    pa: 'ਵੇਰਵਾ', or: 'ବିବରଣ', as: 'বিৱৰণ',
   },
-  submitting: {
-    en: 'Submitting to MCD...', hi: 'MCD को भेज रहे हैं...', bn: 'MCD-তে জমা দেওয়া হচ্ছে...',
-    ta: 'MCD-க்கு சமர்ப்பிக்கிறது...', te: 'MCD కి సమర్పిస్తోంది...', mr: 'MCD ला सादर करत आहे...',
-    gu: 'MCD ને સબમિટ...', kn: 'MCD ಗೆ ಸಲ್ಲಿಸಲಾಗುತ್ತಿದೆ...', ml: 'MCD-ലേക്ക് സമർപ്പിക്കുന്നു...',
-    pa: 'MCD ਨੂੰ ਸਬਮਿਟ ਕੀਤਾ ਜਾ ਰਿਹਾ ਹੈ...', or: 'MCD ଙ୍କୁ ଦାଖଲ ହେଉଛି...', as: 'MCD লৈ দাখিল হৈছে...',
+  fieldCategory: {
+    en: 'Category', hi: 'श्रेणी', bn: 'বিভাগ',
+    ta: 'வகை', te: 'వర్గం', mr: 'श्रेणी',
+    gu: 'શ્રેણી', kn: 'ವರ್ಗ', ml: 'വിഭാഗം',
+    pa: 'ਸ਼੍ਰੇਣੀ', or: 'ବର୍ଗ', as: 'শ্ৰেণী',
   },
-  transcribing: {
-    en: 'Transcribing...', hi: 'ट्रांसक्राइब हो रहा है...', bn: 'ট্রান্সক্রাইব হচ্ছে...',
-    ta: 'டிரான்ஸ்கிரைப் ஆகிறது...', te: 'ట్రాన్స్క్రైబ్ అవుతోంది...', mr: 'ट्रान्सक्राईब होत आहे...',
-    gu: 'ટ્રાન્સ્ક્રાઇબ થઈ રહ્યું છે...', kn: 'ಟ್ರಾನ್ಸ್‌ಕ್ರೈಬ್ ಆಗುತ್ತಿದೆ...', ml: 'ട്രാൻസ്ക്രൈബ്...',
-    pa: 'ਟ੍ਰਾਂਸਕ੍ਰਾਈਬ ਹੋ ਰਿਹਾ ਹੈ...', or: 'ଟ୍ରାନ୍ସକ୍ରାଇବ ହେଉଛି...', as: 'ট্ৰেন্সক্ৰাইব হৈছে...',
+  fieldLocation: {
+    en: 'Location', hi: 'स्थान', bn: 'অবস্থান',
+    ta: 'இடம்', te: 'స్థానం', mr: 'ठिकाण',
+    gu: 'સ્થળ', kn: 'ಸ್ಥಳ', ml: 'സ്ഥലം',
+    pa: 'ਸਥਾਨ', or: 'ସ୍ଥାନ', as: 'স্থান',
   },
-  holdToSpeak: {
-    en: 'Hold to speak', hi: 'बोलने के लिए दबाएं', bn: 'বলতে দাবিয়ে ধরুন', ta: 'பேச அழுத்திப் பிடிக்கவும்',
-    te: 'మాట్లాడటానికి నొక్కి పట్టండి', mr: 'बोलण्यासाठी दाबा', gu: 'બોલવા દબાઓ', kn: 'ಮಾತನಾಡಲು ಒತ್ತಿ ಹಿಡಿಯಿರಿ',
-    ml: 'സംസാരിക്കാൻ ഞക്കി പിടിക്കുക', pa: 'ਬੋਲਣ ਲਈ ਦਬਾਓ', or: 'ଏପ ବୋଲ ପ ବ', as: 'কবলৈ ধৰক',
+  fieldPhotos: {
+    en: 'Photos', hi: 'फ़ोटो', bn: 'ছবি',
+    ta: 'புகைப்படங்கள்', te: 'ఫోటోలు', mr: 'फोटो',
+    gu: 'ફોટો', kn: 'ಫೋಟೋಗಳು', ml: 'ഫോട്ടോകൾ',
+    pa: 'ਫੋਟੋ', or: 'ଫଟୋ', as: 'ফটো',
   },
-  autoDetecting: {
-    en: 'Auto-detecting category...', hi: 'श्रेणी ऑटो-पहचान हो रही है...', bn: 'বিভাগ স্বয়ংক্রিয়ভাবে শনাক্ত হচ্ছে...',
-    ta: 'வகை தானாக கண்டறியப்படுகிறது...', te: 'వర్గం స్వయంచాలకంగా గుర్తించబడుతోంది...', mr: 'श्रेणी आपोआप ओळखली जात आहे...',
-    gu: 'શ્રેણી ઓટો-ડિટેક્ટ...', kn: 'ವರ್ಗ ಸ್ವಯಂ ಗುರ್ತಿಸಲಾಗುತ್ತಿದೆ...', ml: 'വർഗ്ഗം സ്വയം തിരിച്ചറിഞ്ഞ്...',
-    pa: 'ਸ਼੍ਰੇਣੀ ਆਟੋ-ਪਤਾ ਲਗਾਈ ਜਾ ਰਹੀ ਹੈ...', or: 'ବର୍ଗ ଅଟୋ-ଚିହ୍ନଟ...', as: 'শ্ৰেণী স্বয়ংক্ৰিয়ভাৱে চিনাক্ত হৈছে...',
+  submitToMcd: {
+    en: 'Submit to MCD', hi: 'MCD को दर्ज करें', bn: 'MCD-তে জমা দিন',
+    ta: 'MCD-க்கு சமர்ப்பி', te: 'MCD కు సమర్పించు', mr: 'MCD ला सबमिट करा',
+    gu: 'MCD ને સબમિટ', kn: 'MCD ಗೆ ಸಲ್ಲಿಸಿ', ml: 'MCD-ലേക്ക് സമർപ്പിക്കുക',
+    pa: 'MCD ਨੂੰ ਦਰਜ', or: 'MCD କୁ ଦାଖଲ', as: 'MCD লৈ দাখিল',
+  },
+  submittingStatus: {
+    en: 'Submitting...', hi: 'दर्ज हो रहा है...', bn: 'জমা দেওয়া হচ্ছে...',
+    ta: 'சமர்ப்பிக்கப்படுகிறது...', te: 'సమర்పిస్తోంది...', mr: 'सबमिट होत आहे...',
+    gu: 'સબમિટ થઈ રહ્યું...', kn: 'ಸಲ್ಲಿಸಲಾಗುತ್ತಿದೆ...', ml: 'സമർപ്പിക്കുന്നു...',
+    pa: 'ਦਰਜ ਹੋ ਰਿਹਾ...', or: 'ଦାଖଲ ହେଉଛି...', as: 'দাখিল হৈছে...',
+  },
+  reask: {
+    en: 'Re-ask', hi: 'फिर पूछें', bn: 'আবার জিজ্ঞাসা',
+    ta: 'மீண்டும் கேளு', te: 'మళ్ళీ అడుగు', mr: 'पुन्हा विचारा',
+    gu: 'ફરી પૂછો', kn: 'ಮತ್ತೆ ಕೇಳಿ', ml: 'വീണ്ടും ചോദിക്കൂ',
+    pa: 'ਫਿਰ ਪੁੱਛੋ', or: 'ପୁଣି ପଚାରନ୍ତୁ', as: 'পুনৰ সোধক',
+  },
+  change: {
+    en: 'Change', hi: 'बदलें', bn: 'পরিবর্তন',
+    ta: 'மாற்று', te: 'మార్చు', mr: 'बदला',
+    gu: 'બદলો', kn: 'ಬದಲಿಸಿ', ml: 'മാറ്റുക',
+    pa: 'ਬਦਲੋ', or: 'ବଦଳ', as: 'সলনি কৰক',
+  },
+  useForm: {
+    en: 'Use Form', hi: 'फ़ॉर्म भरें', bn: 'ফর্ম ব্যবহার করুন',
+    ta: 'படிவம் பயன்படுத்து', te: 'ఫారమ్ వాడు', mr: 'फॉर्म वापरा',
+    gu: 'ફોર્મ વાપરો', kn: 'ಫಾರ್ಮ್ ಬಳಸಿ', ml: 'ഫോം ഉപയോഗിക്കൂ',
+    pa: 'ਫਾਰਮ ਵਰਤੋ', or: 'ଫର୍ମ ବ୍ୟବହାର', as: 'ফৰ্ম ব্যৱহাৰ',
   },
 }
 
@@ -178,120 +184,149 @@ function t(key: string, lang: string): string {
   return UI[key]?.[lang] || UI[key]?.['en'] || key
 }
 
+// ── Stage definitions ─────────────────────────────────────────────────────────
+type Stage =
+  | 'language_select'
+  | 'greeting'
+  | 'asking_title'
+  | 'asking_description'
+  | 'asking_category'
+  | 'asking_address'
+  | 'asking_photos'
+  | 'confirming'
+  | 'submit'
+  | 'submitted'
+
+const STAGE_ORDER: Stage[] = [
+  'language_select', 'greeting', 'asking_title', 'asking_description',
+  'asking_category', 'asking_address', 'asking_photos', 'confirming', 'submitted',
+]
+
+// Which preview field each stage is actively filling (used inside ReviewPanel)
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Message {
   id: string
-  role: 'user' | 'bot'
-  text: string      // In selected language
-  textEn?: string   // English version
+  role: 'user' | 'bot' | 'system'
+  text: string
+  textEn?: string
   ts: Date
-  widget?: 'location' | 'photos'
+  widget?: 'location' | 'photos' | 'confirm_category' | 'confirm_final'
+  widgetDone?: boolean
 }
 
 interface ExtractedData {
-  title: string | null           // English
-  title_original: string | null  // Selected language
-  description: string | null     // English
-  description_original: string | null // Selected language
+  title: string | null
+  title_original: string | null
+  description: string | null
+  description_original: string | null
   category: string | null
   address: string | null
-  stage: string
 }
 
-interface EditState {
-  field: 'title' | 'description' | 'category' | 'address' | null
-  valueOrig: string
-  valueEn: string
-}
+// ── Concise system prompt ─────────────────────────────────────────────────────
+function buildSystemPrompt(language: string, stage: Stage, collected: Record<string, any>): string {
+  const langNames: Record<string, string> = {
+    en: 'English', hi: 'Hindi', bn: 'Bengali', ta: 'Tamil', te: 'Telugu',
+    mr: 'Marathi', gu: 'Gujarati', kn: 'Kannada', ml: 'Malayalam', pa: 'Punjabi',
+    or: 'Odia', as: 'Assamese', ur: 'Urdu', mai: 'Maithili', kok: 'Konkani',
+    ne: 'Nepali', sd: 'Sindhi', doi: 'Dogri', sa: 'Sanskrit', mni: 'Manipuri',
+    brx: 'Bodo', ks: 'Kashmiri',
+  }
+  const langName = langNames[language] || 'English'
+  const isEn = language === 'en'
 
-const STAGE_FIELD: Record<string, keyof ExtractedData | null> = {
-  greeting: null,
-  asking_title: 'title',
-  asking_description: 'description',
-  asking_category: 'category',
-  asking_address: 'address',
-  asking_photos: null,
-  confirming: null,
-  submitted: null,
-}
+  return `You are NagarMind, a civic complaint assistant for MCD Delhi.
 
-const QUICK_REPLIES_MULTILANG: Record<string, Record<string, string[]>> = {
-  asking_category: {
-    en: ['Yes, correct ✅', 'No, change it ❌'],
-    hi: ['हाँ, सही है ✅', 'नहीं, बदलें ❌'],
-    bn: ['হ্যাঁ, সঠিক ✅', 'না, পরিবর্তন করুন ❌'],
-    ta: ['ஆம், சரியானது ✅', 'இல்லை, மாற்றுக ❌'],
-    te: ['అవును, సరైనది ✅', 'కాదు, మార్చండి ❌'],
-    mr: ['होय, बरोबर ✅', 'नाही, बदला ❌'],
-    gu: ['હા, સાચું ✅', 'ના, બદલો ❌'],
-    kn: ['ಹೌದು, ಸರಿ ✅', 'ಇಲ್ಲ, ಬದಲಿಸಿ ❌'],
-    ml: ['ഉം, ശരി ✅', 'ഇല്ല, മാറ്റുക ❌'],
-    pa: ['ਹਾਂ, ਸਹੀ ✅', 'ਨਹੀਂ, ਬਦਲੋ ❌'],
-    or: ['ହଁ, ଠିକ ✅', 'ନା, ବଦଳନ୍ତୁ ❌'],
-    as: ['হয়, সঠিক ✅', 'নহয়, সলনি কৰক ❌'],
+LANGUAGE: Respond ONLY in ${langName}. Keep replies to 1-3 short sentences MAX.
+${isEn ? '' : `Also provide reply_en (English translation of your reply).`}
+
+CURRENT STAGE: ${stage}
+COLLECTED: ${JSON.stringify(collected)}
+
+STAGE GUIDE (follow strictly, be BRIEF):
+- asking_title: Ask for a short title (5-10 words) for the issue. Extract from what user said if possible.
+- asking_description: Ask for more details — location, severity, how long. Extract if already given.
+- asking_category: Auto-detect category, ask user to confirm. Show category name in ${langName}.
+- asking_address: Tell user to pin location on map. Don't ask again if already given.
+- asking_photos: Ask if they want to add photos as evidence (optional).
+- confirming: Summarize all details briefly, ask for confirmation.
+
+CATEGORIES: pothole, garbage, sewage, water_supply, streetlight, tree, stray_animals, encroachment, noise, other
+URGENCY from description: critical (safety risk), high (major), medium (normal), low (minor)
+
+IMPORTANT:
+- Extract title/description from ANY message, don't wait for perfect formatting
+- If user confirms category → move to address stage
+- If user says YES/confirms → move to next stage  
+- Keep it CONVERSATIONAL. Never repeat questions already answered.
+- In confirming stage: if user says YES/submit → set confirmed: true
+
+RESPOND AS JSON ONLY:
+{
+  "reply": "Your response in ${langName} (1-3 sentences MAX)",
+  ${isEn ? '' : '"reply_en": "English translation",'}
+  "extracted": {
+    "title": "English title or null",
+    "title_original": "${langName} title or null",
+    "description": "English description or null",
+    "description_original": "${langName} description or null",
+    "category": "category_key or null",
+    "address": "address text or null"
   },
-  confirming: {
-    en: ['✅ Yes, submit!', '✏️ Change something'],
-    hi: ['✅ हाँ, जमा करें!', '✏️ कुछ बदलें'],
-    bn: ['✅ হ্যাঁ, জমা দিন!', '✏️ কিছু পরিবর্তন করুন'],
-    ta: ['✅ ஆம், சமர்ப்பி!', '✏️ மாற்றங்கள்'],
-    te: ['✅ అవును, సమర్పించు!', '✏️ మార్పు'],
-    mr: ['✅ होय, सादर करा!', '✏️ बदल करा'],
-    gu: ['✅ હા, સબમિટ!', '✏️ ફેરફાર'],
-    kn: ['✅ ಹೌದು, ಸಲ್ಲಿಸಿ!', '✏️ ಬದಲಿಸಿ'],
-    ml: ['✅ ഉം, സമർപ്പിക്കുക!', '✏️ മാറ്റം'],
-    pa: ['✅ ਹਾਂ, ਸਬਮਿਟ!', '✏️ ਬਦਲੋ'],
-    or: ['✅ ହଁ, ଦାଖଲ!', '✏️ ବଦଳ'],
-    as: ['✅ হয়, দাখিল!', '✏️ সলনি'],
-  },
+  "next_stage": "same|asking_title|asking_description|asking_category|asking_address|asking_photos|confirming|submit",
+  "confirmed": false
+}`
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
+// ── Main Component ─────────────────────────────────────────────────────────────
 export function ChatIntakePage() {
   const navigate = useNavigate()
 
+  // Core state
   const [messages, setMessages] = useState<Message[]>([])
   const [inputText, setInputText] = useState('')
   const [language, setLanguage] = useState('en')
-  const [showLang, setShowLang] = useState(false)
+  const [stage, setStage] = useState<Stage>('language_select')
   const [loading, setLoading] = useState(false)
-  const [stage, setStage] = useState('greeting')
   const [threadId] = useState(() => uuidv4())
 
+  // Extracted data
   const [extracted, setExtracted] = useState<ExtractedData>({
     title: null, title_original: null,
     description: null, description_original: null,
-    category: null, address: null, stage: 'greeting',
+    category: null, address: null,
   })
 
   // Location
   const [lat, setLat] = useState(28.6139)
   const [lng, setLng] = useState(77.2090)
   const [address, setAddress] = useState('')
-  const [locationDone, setLocationDone] = useState(false)
+  const [locationConfirmed, setLocationConfirmed] = useState(false)
 
   // Photos
   const [photos, setPhotos] = useState<string[]>([])
   const [uploading, setUploading] = useState(false)
-  const [photosDone, setPhotosDone] = useState(false)
+  const [photosConfirmed, setPhotosConfirmed] = useState(false)
 
   // Voice
   const [isRecording, setIsRecording] = useState(false)
   const [transcribing, setTranscribing] = useState(false)
 
-  // Layout
-  const [wideLayout, setWideLayout] = useState(false)
-  const [showPreview, setShowPreview] = useState(true)
+  // Translation
+  const [translating, setTranslating] = useState(false)
 
-  // Edit state for final review
-  const [editState, setEditState] = useState<EditState>({ field: null, valueOrig: '', valueEn: '' })
+  // Edit in review
+  const [editingField, setEditingField] = useState<string | null>(null)
+  const [editOrigVal, setEditOrigVal] = useState('')
+  const [editEnVal, setEditEnVal] = useState('')
 
   // Submission
   const [submitting, setSubmitting] = useState(false)
   const [complaintId, setComplaintId] = useState<string | null>(null)
 
-  // Show bilingual final review panel
-  const [showFinalReview, setShowFinalReview] = useState(false)
+  // Layout
+  const [wideLayout, setWideLayout] = useState(false)
+  const [showPreview, setShowPreview] = useState(true)
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -299,9 +334,13 @@ export function ChatIntakePage() {
   const chunksRef = useRef<Blob[]>([])
   const hasInit = useRef(false)
 
-  const langMeta = SUPPORTED_LANGUAGES.find(l => l.code === language) || SUPPORTED_LANGUAGES[0]
   const isNonEnglish = language !== 'en'
+  const langMeta = SUPPORTED_LANGUAGES.find(l => l.code === language)
+  const catCfg = extracted.category
+    ? CATEGORY_CONFIG[extracted.category as CategoryKey] ?? null
+    : null
 
+  // ── Layout detection ────────────────────────────────────────────────────────
   useEffect(() => {
     const check = () => setWideLayout(window.innerWidth >= 1024)
     check()
@@ -309,37 +348,61 @@ export function ChatIntakePage() {
     return () => window.removeEventListener('resize', check)
   }, [])
 
+  // ── Auto-scroll ─────────────────────────────────────────────────────────────
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Init with greeting in selected language
-  useEffect(() => {
-    if (hasInit.current) return
-    hasInit.current = true
-    callAgent('', true)
+  // ── Add message helper ──────────────────────────────────────────────────────
+  const addMsg = useCallback((
+    role: Message['role'],
+    text: string,
+    textEn?: string,
+    widget?: Message['widget'],
+    widgetDone?: boolean
+  ) => {
+    setMessages(prev => [
+      ...prev,
+      { id: uuidv4(), role, text, textEn, ts: new Date(), widget, widgetDone },
+    ])
   }, [])
 
-  // When stage becomes 'confirming', show the final review
-  useEffect(() => {
-    if (stage === 'confirming' || stage === 'submitted') {
-      setShowFinalReview(true)
-    }
-  }, [stage])
+  // ── Mark widget as done ──────────────────────────────────────────────────────
+  const markWidgetDone = useCallback((messageId: string) => {
+    setMessages(prev => prev.map(m => m.id === messageId ? { ...m, widgetDone: true } : m))
+  }, [])
 
-  const addMsg = (role: Message['role'], text: string, textEn?: string, widget?: Message['widget']) => {
-    setMessages(prev => [...prev, { id: uuidv4(), role, text, textEn, ts: new Date(), widget }])
-  }
-
+  // ── Call LLM agent ─────────────────────────────────────────────────────────
   const callAgent = useCallback(async (userMsg: string, isInit = false) => {
     if (loading) return
-    if (!isInit && !userMsg.trim()) return
 
-    if (!isInit && userMsg.trim()) addMsg('user', userMsg)
+    if (!isInit && userMsg.trim()) {
+      addMsg('user', userMsg)
+    }
     setInputText('')
     setLoading(true)
 
+    const collected: Record<string, any> = {}
+    if (extracted.title_original || extracted.title) collected.title = extracted.title_original || extracted.title
+    if (extracted.description_original || extracted.description) collected.description = extracted.description_original || extracted.description
+    if (extracted.category) collected.category = extracted.category
+    if (address) collected.address = address
+
+    const sysPrompt = buildSystemPrompt(language, stage, collected)
+
     try {
+      const history: { role: string; content: string }[] = []
+      // Build history from messages (last 10 exchanges)
+      const recentMsgs = messages.slice(-20)
+      for (const m of recentMsgs) {
+        if (m.role === 'user') history.push({ role: 'user', content: m.text })
+        else if (m.role === 'bot') history.push({ role: 'assistant', content: m.textEn || m.text })
+      }
+      if (userMsg.trim() && !isInit) {
+        history.push({ role: 'user', content: userMsg.trim() })
+      }
+
+      // Use Groq via backend chatbot endpoint
       const { data } = await api.post('/api/chatbot/message', {
         message: userMsg || '',
         thread_id: threadId,
@@ -348,109 +411,169 @@ export function ChatIntakePage() {
         longitude: lng,
       })
 
-      const newStage = data.stage || 'greeting'
+      const newStage = (data.stage || stage) as Stage
       setStage(newStage)
 
       if (data.extracted) {
-        setExtracted(prev => ({
-          ...prev,
-          ...Object.fromEntries(
-            Object.entries(data.extracted).filter(([, v]) => v != null)
-          ),
-          stage: newStage,
-        }))
-        if (data.extracted.address) setAddress(data.extracted.address)
+        setExtracted(prev => {
+          const upd = { ...prev }
+          const e = data.extracted
+          if (e.title) upd.title = e.title
+          if (e.title_original) upd.title_original = e.title_original
+          if (e.description) upd.description = e.description
+          if (e.description_original) upd.description_original = e.description_original
+          if (e.category) upd.category = e.category
+          if (e.address) { upd.address = e.address; setAddress(e.address) }
+          return upd
+        })
       }
 
       const replyText = data.reply || ''
       const replyEn = data.reply_en || replyText
 
-      if (newStage === 'asking_address') {
-        addMsg('bot', replyText, replyEn, 'location')
-      } else if (newStage === 'asking_photos') {
-        addMsg('bot', replyText, replyEn, 'photos')
-      } else {
-        addMsg('bot', replyText, replyEn)
-      }
+      // Determine widget based on new stage
+      let widget: Message['widget'] | undefined
+      if (newStage === 'asking_address') widget = 'location'
+      else if (newStage === 'asking_photos') widget = 'photos'
+      else if (newStage === 'asking_category' && data.extracted?.category) widget = 'confirm_category'
+      else if (newStage === 'confirming') widget = 'confirm_final'
 
-      if (newStage === 'submitted' && data.complaint_payload) {
-        await submitComplaint(data.complaint_payload)
+      addMsg('bot', replyText, replyEn, widget)
+
+      // Handle submission
+      if (newStage === 'submit' && data.complaint_payload) {
+        await doSubmit(data.complaint_payload)
       }
     } catch (e: any) {
-      const msg = e?.response?.data?.detail || 'Connection error. Please try again.'
-      addMsg('bot', msg)
-      toast.error(msg)
+      const errMsg = e?.response?.data?.detail || 'Connection issue. Try again.'
+      addMsg('bot', errMsg)
     } finally {
       setLoading(false)
     }
-  }, [loading, language, threadId, lat, lng])
+  }, [loading, language, stage, extracted, address, lat, lng, threadId, messages, addMsg])
 
-  const submitComplaint = async (payload: any) => {
+  // ── Submit complaint ────────────────────────────────────────────────────────
+  const doSubmit = async (payload?: any) => {
     setSubmitting(true)
     try {
+      const titleEn = extracted.title || extracted.title_original || payload?.title || 'Civic Issue'
+      const descEn = extracted.description || extracted.description_original || payload?.description || ''
+
       const { data } = await complaintsAPI.submit({
-        title: payload.title || 'Civic Issue',
-        description: payload.description || payload.description_original || '',
-        category: payload.category || 'other',
-        original_language: payload.original_language || language,
-        location_address: address || payload.location_address || '',
+        title: titleEn,
+        description: descEn,
+        category: extracted.category || payload?.category || 'other',
+        original_language: language,
+        location_address: address || extracted.address || '',
         location_lat: lat,
         location_lng: lng,
         photos,
-        voice_transcript: payload.voice_transcript || null,
+        voice_transcript: null,
       })
       setComplaintId(data.complaint_id)
+      setStage('submitted')
+      addMsg('bot', t('submittedTitle', language), t('submittedTitle', 'en'))
       toast.success(t('submittedTitle', language))
       setTimeout(() => navigate(`/citizen/track/${data.complaint_id}`), 2500)
     } catch (e: any) {
-      toast.error(e?.response?.data?.detail || 'Submission failed.')
+      toast.error(e?.response?.data?.detail || 'Submission failed. Please try again.')
     } finally {
       setSubmitting(false)
     }
   }
 
-  const confirmLocation = async () => {
+  // ── Language selected → init chat ───────────────────────────────────────────
+  const handleLanguageSelect = (lang: string) => {
+    setLanguage(lang)
+    setStage('greeting')
+    hasInit.current = true
+    // Add welcome message
+    const langNames: Record<string, string> = {
+      en: 'English', hi: 'हिंदी', bn: 'বাংলা', ta: 'தமிழ்', te: 'తెలుగు',
+      mr: 'मराठी', gu: 'ગુજરાતી', kn: 'ಕನ್ನಡ', ml: 'മലയാളം', pa: 'ਪੰਜਾਬੀ',
+      or: 'ଓଡ଼ିଆ', as: 'অসমীয়া',
+    }
+    const greetings: Record<string, string> = {
+      en: "Hello! I'm NagarMind 🏙️ I'll help you report a civic issue. What's the problem you want to report?",
+      hi: "नमस्ते! मैं NagarMind हूँ 🏙️ आपकी नागरिक समस्या दर्ज करने में मदद करूँगा। आप कौन सी समस्या रिपोर्ट करना चाहते हैं?",
+      bn: "নমস্কার! আমি NagarMind 🏙️ আপনার নাগরিক সমস্যা নথিভুক্ত করতে সাহায্য করব। কী সমস্যা জানাতে চান?",
+      ta: "வணக்கம்! நான் NagarMind 🏙️ உங்கள் குடிமை பிரச்சினையை பதிவு செய்ய உதவுகிறேன். என்ன சிக்கல்?",
+      te: "నమస్కారం! నేను NagarMind 🏙️ మీ పౌర సమస్యను నమోదు చేయడంలో సహాయం చేస్తాను. ఏ సమస్య చెప్పాలనుకుంటున్నారు?",
+      mr: "नमस्कार! मी NagarMind आहे 🏙️ तुमची नागरी तक्रार नोंदवण्यास मदत करेन. कोणती समस्या सांगायची आहे?",
+      gu: "નમસ્તે! હું NagarMind છું 🏙️ તમારી નાગરિક સમસ્યા નોંધવામાં મદદ કરીશ. શું સમસ્યા છે?",
+      kn: "ನಮಸ್ಕಾರ! ನಾನು NagarMind 🏙️ ನಿಮ್ಮ ನಾಗರಿಕ ಸಮಸ್ಯೆ ದಾಖಲಿಸಲು ಸಹಾಯ ಮಾಡುತ್ತೇನೆ. ಯಾವ ಸಮಸ್ಯೆ?",
+      ml: "നമസ്കാരം! ഞാൻ NagarMind 🏙️ നിങ്ങളുടെ നഗര പ്രശ്നം രേഖപ്പെടുത്താൻ സഹായിക്കും. എന്ത് പ്രശ്നം?",
+      pa: "ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ! ਮੈਂ NagarMind ਹਾਂ 🏙️ ਤੁਹਾਡੀ ਨਾਗਰਿਕ ਸਮੱਸਿਆ ਦਰਜ ਕਰਨ ਵਿੱਚ ਮਦਦ ਕਰਾਂਗਾ।",
+      or: "ନମସ୍କାର! ମୁଁ NagarMind 🏙️ ଆପଣଙ୍କ ନାଗରିକ ସମସ୍ୟା ଦାଖଲ କରିବାରେ ସାହାଯ୍ୟ କରିବି।",
+      as: "নমস্কাৰ! মই NagarMind 🏙️ আপোনাৰ নাগৰিক সমস্যা দাখিল কৰিবলৈ সহায় কৰিম।",
+    }
+    const greeting = greetings[lang] || greetings['en']
+    const greetingEn = greetings['en']
+    setTimeout(() => {
+      addMsg('bot', greeting, greetingEn)
+      setStage('asking_title')
+    }, 300)
+  }
+
+  // ── Location confirmation ────────────────────────────────────────────────────
+  const confirmLocation = useCallback((msgId: string) => {
     if (!address.trim()) {
-      toast.error(language === 'hi' ? 'कृपया स्थान जोड़ें' : 'Please add a location first')
+      toast.error('Please select a location first')
       return
     }
-    setLocationDone(true)
-    addMsg('user', `📍 ${address}`)
-    await callAgent(address)
-  }
+    setLocationConfirmed(true)
+    markWidgetDone(msgId)
+    addMsg('user', `📍 ${address.slice(0, 80)}${address.length > 80 ? '...' : ''}`)
+    setExtracted(prev => ({ ...prev, address }))
+    callAgent(address)
+  }, [address, addMsg, callAgent, markWidgetDone])
 
-  const confirmPhotos = async () => {
-    setPhotosDone(true)
-    const lang = language
-    const msg = photos.length > 0
-      ? `📸 ${photos.length} ${lang === 'hi' ? 'फ़ोटो जोड़ी' : 'photo(s) added'}`
-      : `⏭️ ${t('skipPhotos', lang)}`
-    addMsg('user', msg)
-    await callAgent(photos.length > 0
-      ? `I have added ${photos.length} photo(s) as evidence`
-      : 'No photos, please continue')
-  }
-
+  // ── Photo handling ────────────────────────────────────────────────────────────
   const handlePhotoSelect = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []).slice(0, 5 - photos.length)
     if (!files.length) return
     setUploading(true)
     for (const file of files) {
-      if (file.size > 5 * 1024 * 1024) {
-        toast.error(`${file.name} too large`)
-        continue
-      }
+      if (file.size > 5 * 1024 * 1024) { toast.error(`${file.name} too large (max 5MB)`); continue }
       try {
         const { data } = await uploadAPI.uploadPhoto(file)
-        if (data.public_url) setPhotos(p => [...p, data.public_url])
+        if (data.public_url) {
+          setPhotos(p => [...p, data.public_url])
+        } else {
+          throw new Error('No public_url')
+        }
       } catch {
-        setPhotos(p => [...p, URL.createObjectURL(file)])
+        // Fallback: convert to base64 data URI so it persists through submission
+        try {
+          const base64 = await new Promise<string>((res, rej) => {
+            const reader = new FileReader()
+            reader.onload = () => res(reader.result as string)
+            reader.onerror = rej
+            reader.readAsDataURL(file)
+          })
+          setPhotos(p => [...p, base64])
+        } catch {
+          toast.error(`Failed to process ${file.name}`)
+        }
       }
     }
     setUploading(false)
     if (e.target) e.target.value = ''
   }
 
+  const confirmPhotos = useCallback((msgId: string, skip = false) => {
+    setPhotosConfirmed(true)
+    markWidgetDone(msgId)
+    if (!skip && photos.length > 0) {
+      addMsg('user', `📸 ${photos.length} photo${photos.length > 1 ? 's' : ''} added`)
+      callAgent(`I have added ${photos.length} photo(s) as evidence`)
+    } else {
+      addMsg('user', t('skipPhotos', language))
+      callAgent('No photos, please continue')
+    }
+  }, [photos, language, addMsg, callAgent, markWidgetDone])
+
+  // ── Voice recording ──────────────────────────────────────────────────────────
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -460,9 +583,9 @@ export function ChatIntakePage() {
       chunksRef.current = []
       rec.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data) }
       rec.onstop = async () => {
-        stream.getTracks().forEach(tr => tr.stop())
+        stream.getTracks().forEach(t => t.stop())
         const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
-        if (blob.size < 500) { toast.error('Too short — speak clearly'); return }
+        if (blob.size < 300) { toast.error('Too short — speak clearly'); return }
         setTranscribing(true)
         try {
           const form = new FormData()
@@ -474,7 +597,7 @@ export function ChatIntakePage() {
           if (data.transcript?.trim()) {
             callAgent(data.transcript.trim())
           } else {
-            toast.error('Could not understand speech. Please try again or type.')
+            toast.error('Could not understand. Please try again or type.')
           }
         } catch {
           toast.error('Transcription failed. Please type your message.')
@@ -495,106 +618,207 @@ export function ChatIntakePage() {
     setIsRecording(false)
   }
 
-  // ── Edit handlers ──────────────────────────────────────────────────────────
-  const startEdit = (field: EditState['field']) => {
-    const origVal = field === 'title' ? (extracted.title_original || extracted.title || '')
-      : field === 'description' ? (extracted.description_original || extracted.description || '')
-      : field === 'category' ? (extracted.category || '')
-      : field === 'address' ? (extracted.address || address || '')
-      : ''
-    const enVal = field === 'title' ? (extracted.title || '')
-      : field === 'description' ? (extracted.description || '')
-      : field === 'category' ? (extracted.category || '')
-      : (extracted.address || address || '')
-    setEditState({ field, valueOrig: origVal, valueEn: enVal })
+  // ── Translate helper ─────────────────────────────────────────────────────────
+  const translateToEn = async (text: string): Promise<string> => {
+    if (!text.trim() || language === 'en') return text
+    try {
+      const { data } = await api.post('/api/translate/single', {
+        text, target_language: 'en-IN',
+        source_language: langMeta?.sarvam || 'hi-IN',
+      })
+      return data.translated || text
+    } catch { return text }
   }
 
-  const saveEdit = () => {
-    if (!editState.field) return
-    const { field, valueOrig, valueEn } = editState
-    if (field === 'title') {
-      setExtracted(p => ({ ...p, title: valueEn || valueOrig, title_original: valueOrig }))
-    } else if (field === 'description') {
-      setExtracted(p => ({ ...p, description: valueEn || valueOrig, description_original: valueOrig }))
-    } else if (field === 'category') {
-      setExtracted(p => ({ ...p, category: valueEn }))
-    } else if (field === 'address') {
-      setExtracted(p => ({ ...p, address: valueOrig }))
-      setAddress(valueOrig)
-    }
-    // Inform chatbot of the change
-    if (valueOrig.trim()) {
-      callAgent(`I want to change the ${field} to: ${valueOrig}`)
-    }
-    setEditState({ field: null, valueOrig: '', valueEn: '' })
+  // ── Edit field handlers ──────────────────────────────────────────────────────
+  const startEdit = (field: string) => {
+    const origVal =
+      field === 'title' ? (extracted.title_original || extracted.title || '') :
+      field === 'description' ? (extracted.description_original || extracted.description || '') :
+      field === 'category' ? (extracted.category || '') :
+      field === 'address' ? (address || '') : ''
+    const enVal =
+      field === 'title' ? (extracted.title || '') :
+      field === 'description' ? (extracted.description || '') :
+      field === 'category' ? (extracted.category || '') : (address || '')
+    setEditingField(field)
+    setEditOrigVal(origVal)
+    setEditEnVal(enVal)
   }
 
-  // ── Derived ────────────────────────────────────────────────────────────────
-  const quickReplies = (QUICK_REPLIES_MULTILANG[stage] || {})[language]
-    || (QUICK_REPLIES_MULTILANG[stage] || {})['en']
-    || []
-  const catCfg = extracted.category ? CATEGORY_CONFIG[extracted.category] : null
-  const isSubmitted = stage === 'submitted'
-  const progress = ['title', 'description', 'category', 'address']
-    .filter(f => extracted[f as keyof ExtractedData]).length
+  const saveEdit = async () => {
+    if (!editingField) return
+    const f = editingField
+    let enVal = editEnVal
+    // Auto-translate if only original edited
+    if (isNonEnglish && editOrigVal && !editEnVal) {
+      setTranslating(true)
+      enVal = await translateToEn(editOrigVal)
+      setTranslating(false)
+    }
+    setExtracted(prev => {
+      const n = { ...prev }
+      if (f === 'title') { n.title = enVal || editOrigVal; n.title_original = editOrigVal }
+      if (f === 'description') { n.description = enVal || editOrigVal; n.description_original = editOrigVal }
+      if (f === 'category') n.category = editEnVal
+      if (f === 'address') { n.address = editOrigVal; setAddress(editOrigVal) }
+      return n
+    })
+    // Tell chatbot about the change
+    if (editOrigVal.trim()) {
+      callAgent(`I want to change the ${f} to: ${editOrigVal}`)
+    }
+    setEditingField(null)
+  }
 
-  // Language selector display
-  const currentLang = SUPPORTED_LANGUAGES.find(l => l.code === language)
+  // ── Jump back to re-answer a field ──────────────────────────────────────────
+  const jumpBack = (field: string) => {
+    const stageMap: Record<string, Stage> = {
+      title: 'asking_title',
+      description: 'asking_description',
+      category: 'asking_category',
+      address: 'asking_address',
+      photos: 'asking_photos',
+    }
+    const targetStage = stageMap[field]
+    if (!targetStage) return
+    setStage(targetStage)
+    const jumpMsgs: Record<string, string> = {
+      en: `I want to change my ${field}`,
+      hi: `मैं अपना ${field} बदलना चाहता हूँ`,
+      bn: `আমি আমার ${field} পরিবর্তন করতে চাই`,
+    }
+    callAgent(jumpMsgs[language] || jumpMsgs['en'])
+  }
+
+  // ── Progress for preview ─────────────────────────────────────────────────────
+  const filledCount = [extracted.title, extracted.description, extracted.category, address]
+    .filter(Boolean).length
+
+  // ── Language select screen ───────────────────────────────────────────────────
+  if (stage === 'language_select') {
+    return (
+      <AppShell navItems={NAV_ITEMS} role="citizen">
+        <div className="min-h-[70vh] flex flex-col items-center justify-center px-4 py-8 space-y-8">
+          {/* Header */}
+          <motion.div
+            initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}
+            className="text-center space-y-3"
+          >
+            <div className="w-16 h-16 rounded-3xl bg-primary-600/20 border border-primary-500/40 flex items-center justify-center mx-auto text-3xl">
+              🏙️
+            </div>
+            <h1 className="font-display font-bold text-2xl text-white">NagarMind</h1>
+            <p className="text-slate-400 text-sm font-body max-w-xs text-center">
+              Report civic issues in your language — AI will guide you step by step
+            </p>
+          </motion.div>
+
+          {/* Language grid */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
+            className="w-full max-w-lg"
+          >
+            {/* Row: label + Use Form button */}
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-xs font-body text-slate-500 uppercase tracking-wider">
+                Select your language / अपनी भाषा चुनें
+              </p>
+              <button
+                onClick={() => navigate('/citizen/submit-form')}
+                title="Use step-by-step form instead"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 border border-slate-700
+                  rounded-xl text-slate-400 text-xs font-body hover:bg-slate-700 hover:text-slate-200
+                  transition-colors shrink-0 ml-3"
+              >
+                <FileText size={12} />
+                <span>Use Form</span>
+              </button>
+            </div>
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+              {SUPPORTED_LANGUAGES.map((lang, i) => (
+                <motion.button
+                  key={lang.code}
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: i * 0.03 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => handleLanguageSelect(lang.code)}
+                  className="relative flex flex-col items-center gap-1.5 py-3 px-2 rounded-2xl
+                    bg-slate-900 border-2 border-slate-800 text-center
+                    hover:border-primary-500/60 hover:bg-primary-600/10
+                    transition-all group"
+                >
+                  <span className="font-semibold text-white text-sm font-body">{lang.nativeName}</span>
+                  <span className="text-slate-500 text-[10px] font-body">{lang.name}</span>
+                  {lang.sttSupported && (
+                    <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-green-500 rounded-full"
+                      title="Voice supported" />
+                  )}
+                </motion.button>
+              ))}
+            </div>
+            <p className="text-center text-[10px] text-slate-600 mt-3 font-body flex items-center justify-center gap-1.5">
+              <span className="w-2 h-2 bg-green-500 rounded-full inline-block" />
+              Green dot = voice input supported
+            </p>
+          </motion.div>
+        </div>
+      </AppShell>
+    )
+  }
+
+  // ── Chat view ────────────────────────────────────────────────────────────────
+  // At this point stage is never 'language_select' (early return above handles it)
+  const chatStage = stage as Exclude<Stage, 'language_select'>
+  const isSubmitted = chatStage === 'submitted'
+  const canSendText = !loading && !transcribing && !isSubmitted &&
+    chatStage !== 'asking_address' && chatStage !== 'asking_photos'
 
   return (
     <AppShell navItems={NAV_ITEMS} role="citizen">
       <div className={`-mx-4 md:-mx-8 flex ${wideLayout ? 'h-[calc(100dvh-64px)]' : 'flex-col min-h-[calc(100dvh-64px)]'}`}>
 
-        {/* ═══════════════════ CHAT PANEL ═══════════════════════════════════ */}
-        <div className={`flex flex-col bg-slate-950 ${wideLayout ? 'w-[56%]' : 'flex-1'}`}>
+        {/* ══════════ CHAT PANEL ══════════ */}
+        <div className={`flex flex-col bg-slate-950 ${wideLayout ? 'w-[56%] border-r border-slate-800' : 'flex-1'}`}>
 
-          {/* Header */}
+          {/* Chat header */}
           <div className="shrink-0 flex items-center gap-2 px-4 py-3 bg-slate-900 border-b border-slate-800">
-            <button onClick={() => navigate('/citizen/dashboard')}
-              className="w-9 h-9 rounded-xl bg-slate-800 flex items-center justify-center hover:bg-slate-700 shrink-0">
-              <ArrowLeft size={16} className="text-slate-300" />
+            <button
+              onClick={() => navigate('/citizen/dashboard')}
+              className="w-8 h-8 rounded-xl bg-slate-800 flex items-center justify-center hover:bg-slate-700 shrink-0"
+            >
+              <ArrowLeft size={15} className="text-slate-300" />
             </button>
-            <div className="flex-1 min-w-0">
-              <p className="font-semibold text-white text-sm font-body">{t('title', language)}</p>
-              <p className="text-slate-400 text-xs font-body truncate">{t('subtitle', language)}</p>
-            </div>
 
-            {/* Language picker */}
-            <div className="relative">
-              <button onClick={() => setShowLang(!showLang)}
-                className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-800 border border-slate-700 rounded-xl text-slate-300 text-xs font-body hover:bg-slate-700 transition-colors">
-                <Globe size={12} />
-                <span>{currentLang?.nativeName || 'EN'}</span>
-                <ChevronDown size={10} className={`transition-transform ${showLang ? 'rotate-180' : ''}`} />
-              </button>
-              <AnimatePresence>
-                {showLang && (
-                  <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                    className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl overflow-hidden max-h-72 overflow-y-auto">
-                    {SUPPORTED_LANGUAGES.map(l => (
-                      <button key={l.code}
-                        onClick={() => { setLanguage(l.code); setShowLang(false) }}
-                        className={`w-full text-left px-3 py-2.5 text-xs font-body flex justify-between items-center transition-colors
-                          ${l.code === language ? 'bg-primary-600/20 text-primary-400' : 'text-slate-300 hover:bg-slate-700'}`}>
-                        <span className="font-semibold">{l.nativeName}</span>
-                        <span className="text-slate-500 text-[10px]">{l.name}</span>
-                      </button>
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
+            {/* Language badge + change option */}
+            <button
+              onClick={() => setStage('language_select')}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-800 border border-slate-700
+                rounded-xl text-slate-300 text-xs font-body hover:bg-slate-700 transition-colors"
+            >
+              <Globe size={12} />
+              <span>{langMeta?.nativeName || 'EN'}</span>
+              <span className="text-slate-500 text-[10px]">▼</span>
+            </button>
+
+            <div className="flex-1" />
 
             {/* Switch to form */}
-            <button onClick={() => navigate('/citizen/submit-form')} title="Step-by-step form"
-              className="w-9 h-9 rounded-xl bg-slate-800 flex items-center justify-center hover:bg-slate-700 text-slate-400">
+            <button
+              onClick={() => navigate('/citizen/submit-form')}
+              title="Use step-by-step form"
+              className="w-8 h-8 rounded-xl bg-slate-800 flex items-center justify-center hover:bg-slate-700 text-slate-400"
+            >
               <FileText size={14} />
             </button>
 
             {/* Mobile preview toggle */}
             {!wideLayout && (
-              <button onClick={() => setShowPreview(!showPreview)}
-                className="w-9 h-9 rounded-xl bg-slate-800 flex items-center justify-center hover:bg-slate-700 text-slate-400">
+              <button
+                onClick={() => setShowPreview(!showPreview)}
+                className="w-8 h-8 rounded-xl bg-slate-800 flex items-center justify-center hover:bg-slate-700 text-slate-400"
+              >
                 {showPreview ? <EyeOff size={14} /> : <Eye size={14} />}
               </button>
             )}
@@ -604,17 +828,17 @@ export function ChatIntakePage() {
           {!wideLayout && (
             <AnimatePresence>
               {showPreview && (
-                <motion.div initial={{ height: 0 }} animate={{ height: 180 }} exit={{ height: 0 }}
-                  className="shrink-0 overflow-hidden border-b border-slate-800">
-                  <PreviewPanel
-                    extracted={extracted} activeField={STAGE_FIELD[stage] || null}
-                    catCfg={catCfg} progress={progress} isSubmitted={isSubmitted}
-                    stage={stage} language={language}
-                    editState={editState} onEdit={startEdit}
-                    onEditChange={(orig, en) => setEditState(s => ({ ...s, valueOrig: orig, valueEn: en }))}
-                    onSave={saveEdit} onCancelEdit={() => setEditState({ field: null, valueOrig: '', valueEn: '' })}
-                    lat={lat} lng={lng} address={address} photos={photos}
-                    isNonEnglish={isNonEnglish}
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="shrink-0 overflow-hidden border-b border-slate-800"
+                >
+                  <MiniPreview
+                    extracted={extracted} address={address} photos={photos}
+                    catCfg={catCfg} stage={chatStage} language={language}
+                    isNonEnglish={isNonEnglish} filledCount={filledCount}
+                    onJumpBack={jumpBack}
                   />
                 </motion.div>
               )}
@@ -623,128 +847,44 @@ export function ChatIntakePage() {
 
           {/* Messages */}
           <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-            {messages.map(msg => (
-              <div key={msg.id}>
-                <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
-                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} items-end gap-2`}>
-                  {msg.role === 'bot' && (
-                    <div className="w-8 h-8 rounded-xl bg-primary-600/20 border border-primary-500/30 flex items-center justify-center shrink-0 text-sm mb-0.5">🏙️</div>
-                  )}
-                  <div className="max-w-[82%] space-y-1">
-                    <div className={`px-4 py-2.5 text-sm font-body leading-relaxed rounded-2xl
-                      ${msg.role === 'user'
-                        ? 'bg-primary-600 text-white rounded-br-sm'
-                        : 'bg-slate-800 border border-slate-700 text-slate-200 rounded-bl-sm'}`}>
-                      {msg.text}
-                    </div>
-                    {/* Show English translation for bot messages in non-English mode */}
-                    {msg.role === 'bot' && isNonEnglish && msg.textEn && msg.textEn !== msg.text && (
-                      <div className="px-3 py-1.5 bg-slate-900/60 border border-slate-800 rounded-xl text-[11px] text-slate-500 font-body italic">
-                        {msg.textEn}
-                      </div>
-                    )}
-                  </div>
-                </motion.div>
-
-                {/* Location widget */}
-                {msg.widget === 'location' && !locationDone && (
-                  <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-                    className="ml-10 mt-3 bg-slate-900 border border-slate-700 rounded-2xl overflow-hidden">
-                    <div className="px-4 pt-3 pb-1 flex items-center justify-between">
-                      <span className="text-xs font-semibold text-primary-400 font-body flex items-center gap-1.5">
-                        <MapPin size={12} /> {t('location', language)}
-                      </span>
-                    </div>
-                    <LocationPickerMini
-                      lat={lat} lng={lng} address={address}
-                      language={language}
-                      onLocationSelect={(la, lo, addr) => {
-                        setLat(la); setLng(lo); setAddress(addr)
-                        setExtracted(p => ({ ...p, address: addr }))
-                      }}
-                    />
-                    {address && (
-                      <div className="mx-3 mb-2 px-3 py-2 bg-slate-800 rounded-xl">
-                        <p className="text-xs text-slate-400 font-body flex items-center gap-1">
-                          <MapPin size={10} className="text-primary-400 shrink-0" /> {address}
-                        </p>
-                      </div>
-                    )}
-                    <div className="px-3 pb-3">
-                      <button onClick={confirmLocation}
-                        className="w-full py-2.5 bg-primary-600 hover:bg-primary-500 text-white text-sm font-semibold rounded-xl font-body transition-colors flex items-center justify-center gap-2">
-                        <CheckCircle2 size={15} /> {t('confirmLocation', language)}
-                      </button>
-                    </div>
-                  </motion.div>
-                )}
-                {msg.widget === 'location' && locationDone && (
-                  <div className="ml-10 mt-2">
-                    <span className="text-xs text-green-400 font-body flex items-center gap-1">
-                      <CheckCircle2 size={11} /> {address.slice(0, 60)}{address.length > 60 ? '…' : ''}
-                    </span>
-                  </div>
-                )}
-
-                {/* Photos widget */}
-                {msg.widget === 'photos' && !photosDone && (
-                  <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-                    className="ml-10 mt-3 bg-slate-900 border border-slate-700 rounded-2xl p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-primary-400 font-body flex items-center gap-1.5">
-                        <Camera size={12} /> {t('evidence', language)} ({photos.length}/5)
-                      </span>
-                    </div>
-                    <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handlePhotoSelect} />
-                    <button onClick={() => fileRef.current?.click()}
-                      disabled={photos.length >= 5 || uploading}
-                      className="w-full py-3 border-2 border-dashed border-slate-700 rounded-xl flex items-center justify-center gap-2 text-slate-400 hover:border-primary-500 hover:text-primary-400 transition-colors text-sm font-body disabled:opacity-50">
-                      {uploading ? <><Loader2 size={14} className="animate-spin" /> Uploading...</> : <><ImageIcon size={14} /> {language === 'en' ? 'Tap to add photos' : '📸'}</>}
-                    </button>
-                    {photos.length > 0 && (
-                      <div className="grid grid-cols-5 gap-2">
-                        {photos.map((url, i) => (
-                          <div key={i} className="relative aspect-square rounded-xl overflow-hidden border border-slate-700">
-                            <img src={url} alt="" className="w-full h-full object-cover" />
-                            <button onClick={() => setPhotos(p => p.filter((_, j) => j !== i))}
-                              className="absolute top-0.5 right-0.5 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center">
-                              <X size={10} className="text-white" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <div className="flex gap-2">
-                      <button onClick={confirmPhotos}
-                        className="flex-1 py-2.5 bg-primary-600 hover:bg-primary-500 text-white text-sm font-semibold rounded-xl font-body transition-colors flex items-center justify-center gap-2">
-                        <CheckCircle2 size={15} />
-                        {photos.length > 0 ? t('addPhotos', language) : t('skipPhotos', language)}
-                      </button>
-                    </div>
-                  </motion.div>
-                )}
-                {msg.widget === 'photos' && photosDone && (
-                  <div className="ml-10 mt-2">
-                    <span className="text-xs text-green-400 font-body flex items-center gap-1">
-                      <CheckCircle2 size={11} /> {photos.length > 0 ? `${photos.length} photo(s)` : t('skipPhotos', language)}
-                    </span>
-                  </div>
-                )}
-              </div>
+            {messages.map((msg) => (
+              <MessageBubble
+                key={msg.id}
+                msg={msg}
+                language={language}
+                isNonEnglish={isNonEnglish}
+                // Location widget
+                lat={lat} lng={lng} address={address}
+                locationConfirmed={locationConfirmed}
+                onLocationSelect={(la, lo, addr) => { setLat(la); setLng(lo); setAddress(addr) }}
+                onConfirmLocation={() => confirmLocation(msg.id)}
+                // Photos widget
+                photos={photos} uploading={uploading} photosConfirmed={photosConfirmed}
+                fileRef={fileRef}
+                onConfirmPhotos={(skip) => confirmPhotos(msg.id, skip)}
+                // Category confirm
+                extracted={extracted} catCfg={catCfg}
+                onQuickReply={(text) => callAgent(text)}
+                onDirectSubmit={() => doSubmit()}
+                // General
+                loading={loading}
+              />
             ))}
 
             {/* Typing indicator */}
             {(loading || transcribing || submitting) && (
               <div className="flex items-end gap-2">
-                <div className="w-8 h-8 rounded-xl bg-primary-600/20 border border-primary-500/30 flex items-center justify-center shrink-0 text-sm">🏙️</div>
+                <div className="w-8 h-8 rounded-xl bg-primary-600/20 border border-primary-500/30 flex items-center justify-center shrink-0 text-sm">
+                  🏙️
+                </div>
                 <div className="bg-slate-800 border border-slate-700 rounded-2xl rounded-bl-sm px-4 py-3">
                   {submitting ? (
                     <p className="text-xs text-slate-400 font-body flex items-center gap-1.5">
-                      <Loader2 size={11} className="animate-spin" /> {t('submitting', language)}
+                      <Loader2 size={11} className="animate-spin" /> Submitting to MCD...
                     </p>
                   ) : transcribing ? (
                     <p className="text-xs text-slate-400 font-body flex items-center gap-1.5">
-                      <Loader2 size={11} className="animate-spin" /> {t('transcribing', language)}
+                      <Loader2 size={11} className="animate-spin" /> Transcribing...
                     </p>
                   ) : (
                     <div className="flex gap-1">
@@ -752,7 +892,8 @@ export function ChatIntakePage() {
                         <motion.div key={i}
                           animate={{ y: [0, -4, 0] }}
                           transition={{ duration: 0.6, delay: i * 0.15, repeat: Infinity }}
-                          className="w-2 h-2 bg-slate-400 rounded-full" />
+                          className="w-2 h-2 bg-slate-400 rounded-full"
+                        />
                       ))}
                     </div>
                   )}
@@ -761,13 +902,19 @@ export function ChatIntakePage() {
             )}
 
             {/* Success */}
-            {(stage === 'submitted' || complaintId) && !submitting && (
-              <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
-                className="flex justify-center">
-                <div className="bg-green-900/30 border border-green-700/40 rounded-2xl px-6 py-4 text-center">
-                  <div className="text-3xl mb-2">✅</div>
-                  <p className="text-green-300 font-semibold font-body text-sm">{t('submittedTitle', language)}</p>
-                  <p className="text-green-400/70 text-xs font-body mt-1">{t('redirecting', language)}</p>
+            {isSubmitted && !submitting && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
+                className="flex justify-center"
+              >
+                <div className="bg-green-900/30 border border-green-700/40 rounded-2xl px-6 py-5 text-center max-w-xs">
+                  <div className="text-4xl mb-2">✅</div>
+                  <p className="text-green-300 font-semibold font-body text-sm">
+                    {t('submittedTitle', language)}
+                  </p>
+                  <p className="text-green-500/70 text-xs font-body mt-1">
+                    Redirecting to tracking...
+                  </p>
                 </div>
               </motion.div>
             )}
@@ -775,202 +922,585 @@ export function ChatIntakePage() {
             <div ref={bottomRef} />
           </div>
 
-          {/* Quick replies */}
-          {quickReplies.length > 0 && !isSubmitted && (
-            <div className="flex gap-2 px-4 py-2 bg-slate-950 overflow-x-auto scrollbar-hide shrink-0">
-              {quickReplies.map(r => (
-                <button key={r} onClick={() => callAgent(r)}
-                  className="shrink-0 px-4 py-1.5 bg-slate-800 border border-slate-700 rounded-full text-sm text-slate-300 hover:border-primary-500 hover:text-primary-400 font-body transition-all whitespace-nowrap">
-                  {r}
-                </button>
-              ))}
-            </div>
-          )}
-
           {/* Input bar */}
-          {!isSubmitted && stage !== 'asking_address' && stage !== 'asking_photos' && (
-            <div className="shrink-0 px-4 py-3 bg-slate-900 border-t border-slate-800">
-              <div className="flex gap-2 items-end">
-                <textarea
-                  value={inputText}
-                  onChange={e => setInputText(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); callAgent(inputText) } }}
-                  placeholder={t('typePlaceholder', language)}
-                  rows={1}
-                  disabled={loading || transcribing}
-                  className="flex-1 bg-slate-800 border border-slate-700 text-white rounded-2xl px-4 py-2.5 text-sm font-body resize-none outline-none focus:border-primary-500 placeholder:text-slate-500 disabled:opacity-50 transition-colors"
-                  style={{ maxHeight: 100, overflowY: 'auto' }}
-                />
-                {/* Voice button */}
-                <motion.button
-                  onMouseDown={startRecording} onMouseUp={stopRecording}
-                  onTouchStart={e => { e.preventDefault(); startRecording() }}
-                  onTouchEnd={e => { e.preventDefault(); stopRecording() }}
-                  disabled={loading || transcribing}
-                  whileTap={{ scale: 0.92 }}
-                  title={t('holdToSpeak', language)}
-                  className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 select-none touch-none transition-all
-                    ${isRecording ? 'bg-red-600 border-2 border-red-400 animate-pulse shadow-[0_0_14px_rgba(239,68,68,0.5)]'
-                      : 'bg-slate-800 border border-slate-700 hover:border-slate-500'}
-                    disabled:opacity-40`}>
-                  {transcribing ? <Loader2 size={15} className="animate-spin text-primary-400" />
-                    : isRecording ? <MicOff size={15} className="text-white" />
-                    : <Mic size={15} className="text-slate-400" />}
-                </motion.button>
-                {/* Send button */}
-                <button onClick={() => callAgent(inputText)}
-                  disabled={!inputText.trim() || loading}
-                  className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 bg-primary-600 hover:bg-primary-500 text-white disabled:opacity-40 disabled:cursor-default shadow-glow-blue disabled:shadow-none transition-all">
-                  {loading ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
-                </button>
-              </div>
-              <p className="text-center text-slate-600 text-[10px] font-body mt-1.5">
-                {langMeta.nativeName} • {t('holdToSpeak', language)} • Enter to send
-              </p>
-            </div>
-          )}
+          <AnimatePresence>
+            {!isSubmitted && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+                className="shrink-0 px-4 py-3 bg-slate-900 border-t border-slate-800"
+              >
+                <div className="flex gap-2 items-end">
+                  <textarea
+                    value={inputText}
+                    onChange={e => {
+                      setInputText(e.target.value)
+                      // Auto-resize
+                      e.target.style.height = 'auto'
+                      e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
+                    }}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault()
+                        if (inputText.trim()) callAgent(inputText)
+                      }
+                    }}
+                    placeholder={t('typePlaceholder', language)}
+                    rows={1}
+                    disabled={!canSendText}
+                    className="flex-1 bg-slate-800 border border-slate-700 text-white rounded-2xl
+                      px-4 py-2.5 text-sm font-body resize-none outline-none
+                      focus:border-primary-500 placeholder:text-slate-500 disabled:opacity-50
+                      transition-colors leading-normal"
+                    style={{ maxHeight: 120, overflowY: 'auto' }}
+                  />
+
+                  {/* Voice button */}
+                  <motion.button
+                    onMouseDown={startRecording}
+                    onMouseUp={stopRecording}
+                    onTouchStart={e => { e.preventDefault(); startRecording() }}
+                    onTouchEnd={e => { e.preventDefault(); stopRecording() }}
+                    disabled={loading || transcribing || isSubmitted}
+                    whileTap={{ scale: 0.92 }}
+                    className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0
+                      select-none touch-none transition-all disabled:opacity-40
+                      ${isRecording
+                        ? 'bg-red-600 border-2 border-red-400 animate-pulse shadow-[0_0_12px_rgba(239,68,68,0.5)]'
+                        : 'bg-slate-800 border border-slate-700 hover:border-slate-500'}`}
+                  >
+                    {transcribing
+                      ? <Loader2 size={15} className="animate-spin text-primary-400" />
+                      : isRecording
+                        ? <MicOff size={15} className="text-white" />
+                        : <Mic size={15} className="text-slate-400" />}
+                  </motion.button>
+
+                  {/* Send button */}
+                  <button
+                    onClick={() => inputText.trim() && callAgent(inputText)}
+                    disabled={!inputText.trim() || loading || isSubmitted}
+                    className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0
+                      bg-primary-600 hover:bg-primary-500 text-white
+                      disabled:opacity-40 disabled:cursor-default
+                      shadow-glow-blue disabled:shadow-none transition-all"
+                  >
+                    {loading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                  </button>
+                </div>
+
+                <p className="text-center text-slate-600 text-[10px] font-body mt-1.5">
+                  {langMeta?.nativeName} • Hold mic to speak • Enter to send
+                </p>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
-        {/* ═══════════════════ PREVIEW / REVIEW PANEL (Desktop) ═════════════ */}
+        {/* ══════════ REVIEW/PREVIEW PANEL (Desktop) ══════════ */}
         {wideLayout && (
-          <div className="w-[44%] flex flex-col border-l border-slate-800 overflow-hidden">
-            {showFinalReview ? (
-              <FinalReviewPanel
-                extracted={extracted} catCfg={catCfg} language={language}
-                isNonEnglish={isNonEnglish} isSubmitted={isSubmitted}
-                submitting={submitting} complaintId={complaintId}
-                editState={editState} onEdit={startEdit}
-                onEditChange={(orig, en) => setEditState(s => ({ ...s, valueOrig: orig, valueEn: en }))}
-                onSave={saveEdit}
-                onCancelEdit={() => setEditState({ field: null, valueOrig: '', valueEn: '' })}
-                address={address} photos={photos}
-                onSubmitDirect={() => callAgent('YES submit')}
-              />
-            ) : (
-              <PreviewPanel
-                extracted={extracted} activeField={STAGE_FIELD[stage] || null}
-                catCfg={catCfg} progress={progress} isSubmitted={isSubmitted}
-                stage={stage} language={language}
-                editState={editState} onEdit={startEdit}
-                onEditChange={(orig, en) => setEditState(s => ({ ...s, valueOrig: orig, valueEn: en }))}
-                onSave={saveEdit} onCancelEdit={() => setEditState({ field: null, valueOrig: '', valueEn: '' })}
-                lat={lat} lng={lng} address={address} photos={photos}
-                isNonEnglish={isNonEnglish}
-              />
-            )}
+          <div className="w-[44%] flex flex-col overflow-hidden bg-slate-900">
+            <ReviewPanel
+              extracted={extracted}
+              address={address}
+              photos={photos}
+              catCfg={catCfg}
+              language={language}
+              isNonEnglish={isNonEnglish}
+              stage={chatStage}
+              filledCount={filledCount}
+              isSubmitted={isSubmitted}
+              submitting={submitting}
+              translating={translating}
+              editingField={editingField}
+              editOrigVal={editOrigVal}
+              editEnVal={editEnVal}
+              onStartEdit={startEdit}
+              onEditOrigChange={(v) => setEditOrigVal(v)}
+              onEditEnChange={(v) => setEditEnVal(v)}
+              onSaveEdit={saveEdit}
+              onCancelEdit={() => setEditingField(null)}
+              onJumpBack={jumpBack}
+              onSubmit={() => doSubmit()}
+              onTranslateOrig={async () => {
+                setTranslating(true)
+                const en = await translateToEn(editOrigVal)
+                setEditEnVal(en)
+                setTranslating(false)
+              }}
+              onTranslateEn={async () => {
+                // translate English back to native (via single endpoint)
+                if (!editEnVal.trim()) return
+                setTranslating(true)
+                try {
+                  const { data } = await api.post('/api/translate/single', {
+                    text: editEnVal,
+                    target_language: langMeta?.sarvam || 'hi-IN',
+                    source_language: 'en-IN',
+                  })
+                  setEditOrigVal(data.translated || editEnVal)
+                } catch { /* ignore */ }
+                setTranslating(false)
+              }}
+            />
           </div>
         )}
       </div>
+
+      {/* Hidden file input */}
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={handlePhotoSelect}
+      />
     </AppShell>
   )
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// LIVE PREVIEW PANEL
+// MESSAGE BUBBLE
 // ══════════════════════════════════════════════════════════════════════════════
-
-interface PreviewProps {
-  extracted: ExtractedData
-  activeField: keyof ExtractedData | null
-  catCfg: any
-  progress: number
-  isSubmitted: boolean
-  stage: string
-  language: string
-  isNonEnglish: boolean
-  editState: EditState
-  onEdit: (field: EditState['field']) => void
-  onEditChange: (orig: string, en: string) => void
-  onSave: () => void
-  onCancelEdit: () => void
-  lat: number; lng: number; address: string; photos: string[]
+interface MsgBubbleProps {
+  msg: Message; language: string; isNonEnglish: boolean
+  lat: number; lng: number; address: string
+  locationConfirmed: boolean
+  onLocationSelect: (la: number, lo: number, addr: string) => void
+  onConfirmLocation: () => void
+  photos: string[]; uploading: boolean; photosConfirmed: boolean
+  fileRef: React.RefObject<HTMLInputElement>
+  onConfirmPhotos: (skip: boolean) => void
+  extracted: ExtractedData; catCfg: any
+  onQuickReply: (text: string) => void
+  onDirectSubmit: () => void
+  loading: boolean
 }
 
-function PreviewPanel({ extracted, activeField, catCfg, progress, isSubmitted, stage, language, isNonEnglish, editState, onEdit, onEditChange, onSave, onCancelEdit, address, photos }: PreviewProps) {
+function MessageBubble({
+  msg, language, isNonEnglish,
+  lat, lng, address, locationConfirmed,
+  onLocationSelect, onConfirmLocation,
+  photos, uploading, photosConfirmed, fileRef,
+  onConfirmPhotos, extracted, catCfg, onQuickReply, onDirectSubmit, loading,
+}: MsgBubbleProps) {
   return (
-    <div className="flex flex-col h-full bg-slate-900">
-      <div className="shrink-0 px-4 py-3 border-b border-slate-800 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Eye size={14} className="text-primary-400" />
-          <span className="font-semibold text-white text-sm font-body">{t('livePreview', language)}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-24 h-1.5 bg-slate-700 rounded-full overflow-hidden">
-            <div className="h-full bg-primary-500 rounded-full transition-all" style={{ width: `${(progress / 4) * 100}%` }} />
+    <div>
+      <motion.div
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} items-end gap-2`}
+      >
+        {msg.role === 'bot' && (
+          <div className="w-8 h-8 rounded-xl bg-primary-600/20 border border-primary-500/30 flex items-center justify-center shrink-0 mb-0.5 text-sm">
+            🏙️
           </div>
-          <span className="text-xs text-slate-400 font-body">{progress}/4</span>
+        )}
+        <div className="max-w-[82%] space-y-1">
+          <div className={`px-4 py-2.5 text-sm font-body leading-relaxed rounded-2xl
+            ${msg.role === 'user'
+              ? 'bg-primary-600 text-white rounded-br-sm'
+              : 'bg-slate-800 border border-slate-700 text-slate-200 rounded-bl-sm'}`}>
+            {msg.text}
+          </div>
+          {/* English translation for bot messages */}
+          {msg.role === 'bot' && isNonEnglish && msg.textEn && msg.textEn !== msg.text && (
+            <div className="px-3 py-1.5 bg-slate-900/60 border border-slate-800 rounded-xl text-[11px] text-slate-500 font-body italic">
+              {msg.textEn}
+            </div>
+          )}
+        </div>
+      </motion.div>
+
+      {/* ── Location widget ── */}
+      {msg.widget === 'location' && (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+          className="ml-10 mt-3"
+        >
+          {!msg.widgetDone ? (
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl overflow-hidden">
+              <div className="px-4 pt-3 pb-2">
+                <p className="text-xs font-semibold text-primary-400 font-body flex items-center gap-1.5">
+                  <MapPin size={12} /> Pin the exact location
+                </p>
+              </div>
+              <div className="px-3 pb-1">
+                <LocationPicker
+                  initialLat={lat}
+                  initialLng={lng}
+                  initialAddress={address}
+                  onLocationSelect={onLocationSelect}
+                />
+              </div>
+              <div className="px-3 pb-3 pt-1">
+                <button
+                  onClick={onConfirmLocation}
+                  disabled={!address.trim()}
+                  className="w-full py-2.5 bg-primary-600 hover:bg-primary-500 disabled:opacity-50
+                    text-white text-sm font-semibold rounded-xl font-body transition-colors
+                    flex items-center justify-center gap-2"
+                >
+                  <CheckCircle2 size={15} />
+                  {t('confirmLocation', language)}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 text-xs text-green-400 font-body ml-1">
+              <CheckCircle2 size={12} />
+              <span className="truncate max-w-[250px]">{address}</span>
+            </div>
+          )}
+        </motion.div>
+      )}
+
+      {/* ── Photos widget ── */}
+      {msg.widget === 'photos' && (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+          className="ml-10 mt-3"
+        >
+          {!msg.widgetDone ? (
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold text-primary-400 font-body flex items-center gap-1.5">
+                  <Camera size={12} /> Evidence Photos ({photos.length}/5)
+                </p>
+              </div>
+              {/* Upload button */}
+              <button
+                onClick={() => fileRef.current?.click()}
+                disabled={photos.length >= 5 || uploading}
+                className="w-full py-3 border-2 border-dashed border-slate-700 rounded-xl
+                  flex items-center justify-center gap-2 text-slate-400
+                  hover:border-primary-500 hover:text-primary-400 transition-colors text-sm font-body
+                  disabled:opacity-50"
+              >
+                {uploading
+                  ? <><Loader2 size={14} className="animate-spin" /> Uploading...</>
+                  : <><ImageIcon size={14} /> Tap to add photos (optional)</>}
+              </button>
+              {/* Photo grid */}
+              {photos.length > 0 && (
+                <div className="grid grid-cols-5 gap-2">
+                  {photos.map((url, i) => (
+                    <div key={i} className="relative aspect-square rounded-xl overflow-hidden border border-slate-700">
+                      <img src={url} alt="" className="w-full h-full object-cover" />
+                    </div>
+                  ))}
+                </div>
+              )}
+              {/* Action buttons */}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => onConfirmPhotos(false)}
+                  className="flex-1 py-2.5 bg-primary-600 hover:bg-primary-500 text-white text-sm
+                    font-semibold rounded-xl font-body transition-colors flex items-center justify-center gap-2"
+                >
+                  <CheckCircle2 size={14} />
+                  {photos.length > 0 ? t('addPhotos', language) : t('skipPhotos', language)}
+                </button>
+                {photos.length > 0 && (
+                  <button
+                    onClick={() => onConfirmPhotos(true)}
+                    className="px-4 py-2.5 bg-slate-800 border border-slate-700 text-slate-400
+                      text-sm rounded-xl font-body hover:border-slate-600 transition-colors"
+                  >
+                    {t('skip', language)}
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 text-xs text-green-400 font-body ml-1">
+              <CheckCircle2 size={12} />
+              <span>{photos.length > 0 ? `${photos.length} photo(s) added` : 'No photos'}</span>
+            </div>
+          )}
+        </motion.div>
+      )}
+
+      {/* ── Category confirm widget ── */}
+      {msg.widget === 'confirm_category' && extracted.category && (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+          className="ml-10 mt-2 flex gap-2"
+        >
+          {!msg.widgetDone ? (
+            <>
+              <button
+                onClick={() => onQuickReply(t('yes', language))}
+                disabled={loading}
+                className="px-5 py-2 bg-green-600/20 border border-green-500/40 text-green-400 text-sm
+                  rounded-xl font-body hover:bg-green-600/30 transition-all font-semibold"
+              >
+                {t('yes', language)}
+              </button>
+              <button
+                onClick={() => onQuickReply(t('no', language))}
+                disabled={loading}
+                className="px-5 py-2 bg-red-600/20 border border-red-500/40 text-red-400 text-sm
+                  rounded-xl font-body hover:bg-red-600/30 transition-all font-semibold"
+              >
+                {t('no', language)}
+              </button>
+            </>
+          ) : null}
+        </motion.div>
+      )}
+
+      {/* ── Final confirmation widget ── */}
+      {msg.widget === 'confirm_final' && (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+          className="ml-10 mt-2 flex gap-2"
+        >
+          {!msg.widgetDone ? (
+            <>
+              <button
+                onClick={onDirectSubmit}
+                disabled={loading}
+                className="flex-1 py-2.5 bg-primary-600 hover:bg-primary-500 text-white text-sm
+                  rounded-xl font-body font-semibold transition-all flex items-center justify-center gap-2"
+              >
+                <CheckCircle2 size={14} />
+                {t('submit', language)}
+              </button>
+              <button
+                onClick={() => onQuickReply('I want to change something')}
+                disabled={loading}
+                className="px-4 py-2.5 bg-slate-800 border border-slate-700 text-slate-300 text-sm
+                  rounded-xl font-body hover:border-slate-600 transition-all flex items-center gap-1.5"
+              >
+                <Edit3 size={13} /> {t('editThis', language)}
+              </button>
+            </>
+          ) : null}
+        </motion.div>
+      )}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MINI PREVIEW (mobile top strip)
+// ══════════════════════════════════════════════════════════════════════════════
+interface MiniPreviewProps {
+  extracted: ExtractedData; address: string; photos: string[]
+  catCfg: any; stage: Exclude<Stage, 'language_select'>; language: string; isNonEnglish: boolean
+  filledCount: number; onJumpBack: (field: string) => void
+}
+
+function MiniPreview({ extracted, address, photos, catCfg, stage, language, isNonEnglish, filledCount, onJumpBack }: MiniPreviewProps) {
+  return (
+    <div className="bg-slate-900/80 px-4 py-3 overflow-x-auto">
+      <div className="flex gap-2 items-center min-w-max">
+        {/* Progress */}
+        <div className="flex gap-1 mr-2">
+          {[0, 1, 2, 3].map(i => (
+            <div key={i} className={`w-6 h-1.5 rounded-full ${i < filledCount ? 'bg-primary-500' : 'bg-slate-700'}`} />
+          ))}
+        </div>
+
+        {[
+          { key: 'title', icon: '✏️', label: extracted.title_original || extracted.title, stage: 'asking_title' },
+          { key: 'category', icon: '🏷️', label: catCfg?.label, stage: 'asking_category' },
+          { key: 'address', icon: '📍', label: address, stage: 'asking_address' },
+          { key: 'photos', icon: '📸', label: photos.length > 0 ? `${photos.length} photos` : null, stage: 'asking_photos' },
+        ].map(({ key, icon, label, stage: s }) => (
+          <button
+            key={key}
+            onClick={() => label && onJumpBack(key)}
+            disabled={!label}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-body whitespace-nowrap
+              border transition-all shrink-0
+              ${label
+                ? 'bg-slate-800 border-slate-700 text-slate-200 hover:border-primary-500/50 cursor-pointer'
+                : 'bg-slate-800/40 border-slate-800 text-slate-600 cursor-default'}`}
+          >
+            <span>{icon}</span>
+            {label ? (
+              <span className="max-w-[80px] truncate">{label}</span>
+            ) : (
+              <span className="italic">...</span>
+            )}
+            {label && <Edit3 size={9} className="text-slate-500" />}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FULL REVIEW PANEL (desktop right side)
+// ══════════════════════════════════════════════════════════════════════════════
+interface ReviewPanelProps {
+  extracted: ExtractedData; address: string; photos: string[]
+  catCfg: any; language: string; isNonEnglish: boolean; stage: Exclude<Stage, 'language_select'>
+  filledCount: number; isSubmitted: boolean; submitting: boolean; translating: boolean
+  editingField: string | null; editOrigVal: string; editEnVal: string
+  onStartEdit: (field: string) => void
+  onEditOrigChange: (v: string) => void
+  onEditEnChange: (v: string) => void
+  onSaveEdit: () => void; onCancelEdit: () => void
+  onJumpBack: (field: string) => void
+  onSubmit: () => void
+  onTranslateOrig: () => void; onTranslateEn: () => void
+}
+
+function ReviewPanel({
+  extracted, address, photos, catCfg, language, isNonEnglish, stage,
+  filledCount, isSubmitted, submitting, translating,
+  editingField, editOrigVal, editEnVal,
+  onStartEdit, onEditOrigChange, onEditEnChange, onSaveEdit, onCancelEdit,
+  onJumpBack, onSubmit, onTranslateOrig, onTranslateEn,
+}: ReviewPanelProps) {
+  const STAGE_ACTIVE_FIELD_MAP: Partial<Record<Exclude<Stage, 'language_select'>, string>> = {
+    asking_title: 'title',
+    asking_description: 'description',
+    asking_category: 'category',
+    asking_address: 'address',
+    asking_photos: 'photos',
+  }
+  const activeField = STAGE_ACTIVE_FIELD_MAP[stage]
+  const isConfirming = stage === 'confirming' || stage === 'submit' || isSubmitted
+
+  const langName = SUPPORTED_LANGUAGES.find(l => l.code === language)?.nativeName || 'English'
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Panel header */}
+      <div className="shrink-0 px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+        <div>
+          <p className="font-display font-bold text-white text-sm">
+            {isConfirming ? t('finalReview', language) : t('livePreview', language)}
+          </p>
+          {isNonEnglish && (
+            <p className="text-[10px] text-slate-500 font-body mt-0.5">
+              {langName} + English
+            </p>
+          )}
+        </div>
+        {/* Progress dots */}
+        <div className="flex gap-1">
+          {[0, 1, 2, 3].map(i => (
+            <div key={i}
+              className={`w-2 h-2 rounded-full transition-all ${i < filledCount ? 'bg-primary-500' : 'bg-slate-700'}`}
+            />
+          ))}
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
+      {/* Fields */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+
         {/* Title */}
-        <LiveField
-          icon={<Edit3 size={12} />} label={t('issueTitle', language)}
-          value={isNonEnglish ? (extracted.title_original || extracted.title) : extracted.title}
-          valueEn={isNonEnglish ? extracted.title : null}
-          isActive={activeField === 'title'} language={language}
-          isEditing={editState.field === 'title'} editValue={editState.valueOrig} editValueEn={editState.valueEn}
-          onEdit={() => onEdit('title')}
-          onEditChange={onEditChange} onSave={onSave} onCancel={onCancelEdit}
-          isNonEnglish={isNonEnglish}
-          placeholder={language === 'hi' ? 'समस्या का शीर्षक' : 'Issue title'}
+        <ReviewField
+          fieldKey="title"
+          icon={<Edit3 size={12} />}
+          label={t('fieldTitle', language)}
+          origValue={extracted.title_original || extracted.title}
+          enValue={extracted.title}
+          isActive={activeField === 'title'}
+          isEditing={editingField === 'title'}
+          editOrigVal={editOrigVal}
+          editEnVal={editEnVal}
+          language={language} isNonEnglish={isNonEnglish}
+          translating={translating}
+          onStartEdit={onStartEdit}
+          onEditOrigChange={onEditOrigChange}
+          onEditEnChange={onEditEnChange}
+          onSaveEdit={onSaveEdit}
+          onCancelEdit={onCancelEdit}
+          onJumpBack={onJumpBack}
+          onTranslateOrig={onTranslateOrig}
+          onTranslateEn={onTranslateEn}
+          isConfirming={isConfirming}
         />
 
         {/* Description */}
-        <LiveField
-          icon={<AlignLeft size={12} />} label={t('description', language)}
-          value={isNonEnglish ? (extracted.description_original || extracted.description) : extracted.description}
-          valueEn={isNonEnglish ? extracted.description : null}
-          isActive={activeField === 'description'} language={language}
-          isEditing={editState.field === 'description'} editValue={editState.valueOrig} editValueEn={editState.valueEn}
-          onEdit={() => onEdit('description')}
-          onEditChange={onEditChange} onSave={onSave} onCancel={onCancelEdit}
-          isNonEnglish={isNonEnglish} multiline
-          placeholder={language === 'hi' ? 'विवरण' : 'Description'}
+        <ReviewField
+          fieldKey="description"
+          icon={<AlignLeft size={12} />}
+          label={t('fieldDescription', language)}
+          origValue={extracted.description_original || extracted.description}
+          enValue={extracted.description}
+          isActive={activeField === 'description'}
+          isEditing={editingField === 'description'}
+          editOrigVal={editOrigVal}
+          editEnVal={editEnVal}
+          language={language} isNonEnglish={isNonEnglish}
+          translating={translating}
+          onStartEdit={onStartEdit}
+          onEditOrigChange={onEditOrigChange}
+          onEditEnChange={onEditEnChange}
+          onSaveEdit={onSaveEdit}
+          onCancelEdit={onCancelEdit}
+          onJumpBack={onJumpBack}
+          onTranslateOrig={onTranslateOrig}
+          onTranslateEn={onTranslateEn}
+          isConfirming={isConfirming}
+          multiline
         />
 
         {/* Category */}
-        <div className={`rounded-xl border p-3 transition-all ${activeField === 'category' ? 'border-primary-500 bg-primary-600/10' : 'border-slate-700 bg-slate-800/50'}`}>
-          <div className="flex items-center justify-between mb-1">
+        <div className={`rounded-xl border p-3 transition-all ${activeField === 'category' ? 'border-primary-500/60 bg-primary-600/5' : 'border-slate-700 bg-slate-800/40'}`}>
+          <div className="flex items-center justify-between mb-1.5">
             <div className="flex items-center gap-1.5">
               <Tag size={12} className={activeField === 'category' ? 'text-primary-400' : 'text-slate-500'} />
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('category', language)}</span>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('fieldCategory', language)}</span>
               {activeField === 'category' && <span className="w-1.5 h-1.5 bg-primary-400 rounded-full animate-pulse" />}
             </div>
+            {extracted.category && isConfirming && (
+              <button onClick={() => onJumpBack('category')}
+                className="text-[10px] text-slate-500 hover:text-primary-400 font-body flex items-center gap-0.5">
+                <RotateCcw size={9} /> {t('change', language)}
+              </button>
+            )}
           </div>
           {extracted.category ? (
             <div className="flex items-center gap-2">
-              <span className="text-lg">{catCfg?.icon || '📋'}</span>
+              <span className="text-xl">{catCfg?.icon || '📋'}</span>
               <span className="text-sm font-semibold text-slate-200 font-body">{catCfg?.label || extracted.category}</span>
             </div>
           ) : (
             <p className="text-xs text-slate-600 italic font-body">
-              {activeField === 'category' ? t('autoDetecting', language) : t('category', language) + '...'}
+              {activeField === 'category' ? t('autoDetecting', language) : `${t('fieldCategory', language)}...`}
             </p>
           )}
         </div>
 
         {/* Location */}
-        <div className={`rounded-xl border p-3 transition-all ${activeField === 'address' || stage === 'asking_address' ? 'border-primary-500 bg-primary-600/10' : 'border-slate-700 bg-slate-800/50'}`}>
-          <div className="flex items-center gap-1.5 mb-1">
-            <MapPin size={12} className={activeField === 'address' ? 'text-primary-400' : 'text-slate-500'} />
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('location', language)}</span>
+        <div className={`rounded-xl border p-3 transition-all ${activeField === 'address' ? 'border-primary-500/60 bg-primary-600/5' : 'border-slate-700 bg-slate-800/40'}`}>
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center gap-1.5">
+              <MapPin size={12} className={activeField === 'address' ? 'text-primary-400' : 'text-slate-500'} />
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('fieldLocation', language)}</span>
+            </div>
+            {address && isConfirming && (
+              <button onClick={() => onJumpBack('address')}
+                className="text-[10px] text-slate-500 hover:text-primary-400 font-body flex items-center gap-0.5">
+                <RotateCcw size={9} /> {t('change', language)}
+              </button>
+            )}
           </div>
           {address ? (
             <p className="text-xs text-slate-200 font-body leading-snug">{address}</p>
           ) : (
-            <p className="text-xs text-slate-600 italic font-body">
-              {stage === 'asking_address' ? '📍 ...' : t('location', language) + '...'}
-            </p>
+            <p className="text-xs text-slate-600 italic font-body">{t('fieldLocation', language)}...</p>
           )}
         </div>
 
         {/* Photos */}
         {photos.length > 0 && (
-          <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-3">
-            <div className="flex items-center gap-1.5 mb-1.5">
+          <div className="rounded-xl border border-slate-700 bg-slate-800/40 p-3">
+            <div className="flex items-center gap-1.5 mb-2">
               <Camera size={12} className="text-slate-500" />
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('evidence', language)}</span>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                {t('fieldPhotos', language)} ({photos.length})
+              </span>
             </div>
             <div className="grid grid-cols-5 gap-1">
               {photos.map((url, i) => (
@@ -982,257 +1512,91 @@ function PreviewPanel({ extracted, activeField, catCfg, progress, isSubmitted, s
           </div>
         )}
 
-        {/* Stage hint */}
-        {!isSubmitted && (
-          <p className="text-center text-[10px] text-slate-600 font-body">
-            {stage === 'greeting' && '👋'}
-            {stage === 'asking_title' && `✏️ ${t('issueTitle', language)}...`}
-            {stage === 'asking_description' && `📝 ${t('description', language)}...`}
-            {stage === 'asking_category' && `🏷️ ${t('category', language)}...`}
-            {stage === 'asking_address' && `📍 ${t('location', language)}...`}
-            {stage === 'asking_photos' && `📸 ${t('evidence', language)}...`}
-            {stage === 'confirming' && `✅ ${t('finalReview', language)}`}
-          </p>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// FINAL BILINGUAL REVIEW PANEL
-// ══════════════════════════════════════════════════════════════════════════════
-
-interface FinalReviewProps {
-  extracted: ExtractedData
-  catCfg: any
-  language: string
-  isNonEnglish: boolean
-  isSubmitted: boolean
-  submitting: boolean
-  complaintId: string | null
-  editState: EditState
-  onEdit: (field: EditState['field']) => void
-  onEditChange: (orig: string, en: string) => void
-  onSave: () => void
-  onCancelEdit: () => void
-  address: string
-  photos: string[]
-  onSubmitDirect: () => void
-}
-
-function FinalReviewPanel({ extracted, catCfg, language, isNonEnglish, isSubmitted, submitting, complaintId, editState, onEdit, onEditChange, onSave, onCancelEdit, address, photos, onSubmitDirect }: FinalReviewProps) {
-  return (
-    <div className="flex flex-col h-full bg-slate-900 overflow-hidden">
-      <div className="shrink-0 px-4 py-3 border-b border-slate-800 bg-slate-900">
-        <h3 className="font-display font-bold text-white text-sm">{t('finalReview', language)}</h3>
-        {isNonEnglish && (
-          <p className="text-[10px] text-slate-500 font-body mt-0.5">
-            {SUPPORTED_LANGUAGES.find(l => l.code === language)?.nativeName} + English
-          </p>
-        )}
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-
-        {/* Title section */}
-        <FinalField
-          label={t('issueTitle', language)} icon="✏️"
-          origValue={extracted.title_original || extracted.title}
-          enValue={extracted.title}
-          language={language} isNonEnglish={isNonEnglish}
-          isEditing={editState.field === 'title'}
-          editValueOrig={editState.valueOrig} editValueEn={editState.valueEn}
-          onEdit={() => onEdit('title')}
-          onEditChange={onEditChange} onSave={onSave} onCancel={onCancelEdit}
-        />
-
-        {/* Description section */}
-        <FinalField
-          label={t('description', language)} icon="📝"
-          origValue={extracted.description_original || extracted.description}
-          enValue={extracted.description}
-          language={language} isNonEnglish={isNonEnglish}
-          isEditing={editState.field === 'description'}
-          editValueOrig={editState.valueOrig} editValueEn={editState.valueEn}
-          onEdit={() => onEdit('description')}
-          onEditChange={onEditChange} onSave={onSave} onCancel={onCancelEdit}
-          multiline
-        />
-
-        {/* Category */}
-        <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-3">
-          <p className="text-[10px] text-slate-500 uppercase tracking-wider font-body mb-2">🏷️ {t('category', language)}</p>
-          {extracted.category ? (
-            <div className="flex items-center gap-2">
-              <span className="text-2xl">{catCfg?.icon || '📋'}</span>
-              <div>
-                <p className="text-sm font-bold text-white">{catCfg?.label || extracted.category}</p>
-                {isNonEnglish && <p className="text-xs text-slate-400">{extracted.category}</p>}
-              </div>
-            </div>
-          ) : (
-            <p className="text-xs text-slate-500 italic">—</p>
-          )}
-        </div>
-
-        {/* Location */}
-        <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-3">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-[10px] text-slate-500 uppercase tracking-wider font-body">📍 {t('location', language)}</p>
-            <button onClick={() => onEdit('address')}
-              className="text-[10px] text-slate-500 hover:text-primary-400 font-body flex items-center gap-0.5">
-              <Edit3 size={9} /> {t('editField', language)}
-            </button>
-          </div>
-          {editState.field === 'address' ? (
-            <div className="space-y-2">
-              <input type="text" value={editState.valueOrig}
-                onChange={e => onEditChange(e.target.value, e.target.value)}
-                className="w-full bg-slate-700 border border-primary-500/50 text-white rounded-lg px-2 py-1.5 text-xs font-body outline-none" />
-              <div className="flex gap-1.5">
-                <button onClick={onSave} className="flex-1 py-1 bg-primary-600 text-white text-[10px] rounded-lg font-semibold font-body">{t('save', language)}</button>
-                <button onClick={onCancelEdit} className="flex-1 py-1 bg-slate-700 text-slate-300 text-[10px] rounded-lg font-body">{t('cancel', language)}</button>
-              </div>
-            </div>
-          ) : (
-            <p className="text-sm text-slate-200 font-body">{address || extracted.address || '—'}</p>
-          )}
-        </div>
-
-        {/* Photos */}
-        {photos.length > 0 && (
-          <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-3">
-            <p className="text-[10px] text-slate-500 uppercase tracking-wider font-body mb-2">📸 {t('evidence', language)}</p>
-            <div className="grid grid-cols-4 gap-2">
-              {photos.map((url, i) => (
-                <div key={i} className="aspect-square rounded-lg overflow-hidden border border-slate-700">
-                  <img src={url} alt="" className="w-full h-full object-cover" />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* Bilingual note */}
-        {isNonEnglish && (
+        {isNonEnglish && isConfirming && (
           <div className="bg-blue-900/20 border border-blue-700/30 rounded-xl p-3">
             <p className="text-xs text-blue-300 font-body">
-              📘 Both {SUPPORTED_LANGUAGES.find(l => l.code === language)?.nativeName} and English versions saved. Officers see the English version.
+              📘 Both {SUPPORTED_LANGUAGES.find(l => l.code === language)?.nativeName} and English versions will be saved. Officers see the English version.
             </p>
           </div>
         )}
 
-        {/* Submit / Success */}
-        {(isSubmitted || complaintId) ? (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-            className="bg-green-900/30 border border-green-700/40 rounded-2xl p-4 text-center">
-            <CheckCircle2 size={28} className="text-green-400 mx-auto mb-2" />
+        {/* Submit button in review panel */}
+        {isConfirming && !isSubmitted && (
+          <motion.button
+            whileTap={{ scale: 0.97 }}
+            onClick={onSubmit}
+            disabled={submitting}
+            className="w-full py-3.5 bg-primary-600 hover:bg-primary-500 text-white font-bold
+              rounded-2xl font-body flex items-center justify-center gap-2 transition-all
+              shadow-glow-blue disabled:opacity-50 disabled:shadow-none text-sm"
+          >
+            {submitting
+              ? <><Loader2 size={16} className="animate-spin" /> {t('submittingStatus', language)}</>
+              : <><CheckCircle2 size={16} /> {t('submitToMcd', language)}</>}
+          </motion.button>
+        )}
+
+        {isSubmitted && (
+          <div className="bg-green-900/30 border border-green-700/40 rounded-2xl p-4 text-center">
+            <CheckCircle2 size={24} className="text-green-400 mx-auto mb-2" />
             <p className="text-green-300 font-semibold text-sm font-body">{t('submittedTitle', language)}</p>
-          </motion.div>
-        ) : submitting ? (
-          <div className="flex items-center justify-center py-4">
-            <Loader2 size={20} className="animate-spin text-primary-400" />
-            <span className="ml-2 text-sm text-slate-400 font-body">{t('submitting', language)}</span>
           </div>
-        ) : null}
+        )}
       </div>
     </div>
   )
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// LIVE FIELD (Preview)
+// REVIEW FIELD — shared editable field component
 // ══════════════════════════════════════════════════════════════════════════════
-
-interface LiveFieldProps {
-  icon: React.ReactNode; label: string
-  value: string | null; valueEn: string | null
-  isActive: boolean; language: string; isNonEnglish: boolean
-  isEditing: boolean; editValue: string; editValueEn: string
-  onEdit: () => void
-  onEditChange: (orig: string, en: string) => void
-  onSave: () => void; onCancel: () => void
-  placeholder: string; multiline?: boolean
+interface ReviewFieldProps {
+  fieldKey: string; icon: React.ReactNode; label: string
+  origValue: string | null; enValue: string | null
+  isActive: boolean; isEditing: boolean
+  editOrigVal: string; editEnVal: string
+  language: string; isNonEnglish: boolean; translating: boolean
+  onStartEdit: (f: string) => void
+  onEditOrigChange: (v: string) => void
+  onEditEnChange: (v: string) => void
+  onSaveEdit: () => void; onCancelEdit: () => void
+  onJumpBack: (f: string) => void
+  onTranslateOrig: () => void; onTranslateEn: () => void
+  isConfirming: boolean; multiline?: boolean
 }
 
-function LiveField({ icon, label, value, valueEn, isActive, language, isNonEnglish, isEditing, editValue, editValueEn, onEdit, onEditChange, onSave, onCancel, placeholder, multiline }: LiveFieldProps) {
+function ReviewField({
+  fieldKey, icon, label, origValue, enValue,
+  isActive, isEditing, editOrigVal, editEnVal,
+  language, isNonEnglish, translating,
+  onStartEdit, onEditOrigChange, onEditEnChange, onSaveEdit, onCancelEdit,
+  onJumpBack, onTranslateOrig, onTranslateEn,
+  isConfirming, multiline,
+}: ReviewFieldProps) {
+  const langName = SUPPORTED_LANGUAGES.find(l => l.code === language)?.nativeName || 'English'
+
   return (
-    <div className={`rounded-xl border p-3 transition-all ${isActive ? 'border-primary-500 bg-primary-600/10 shadow-[0_0_10px_rgba(37,99,235,0.2)]' : 'border-slate-700 bg-slate-800/50'}`}>
-      <div className="flex items-center justify-between mb-1">
+    <div className={`rounded-xl border p-3 transition-all ${isActive ? 'border-primary-500/60 bg-primary-600/5 shadow-[0_0_10px_rgba(37,99,235,0.15)]' : 'border-slate-700 bg-slate-800/40'}`}>
+      <div className="flex items-center justify-between mb-1.5">
         <div className="flex items-center gap-1.5">
           <span className={isActive ? 'text-primary-400' : 'text-slate-500'}>{icon}</span>
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{label}</span>
           {isActive && <span className="w-1.5 h-1.5 bg-primary-400 rounded-full animate-pulse" />}
         </div>
-        {value && !isEditing && (
-          <button onClick={onEdit} className="text-[10px] text-slate-500 hover:text-primary-400 font-body flex items-center gap-0.5">
-            <Edit3 size={9} /> Edit
-          </button>
-        )}
-      </div>
-      {isEditing ? (
-        <div className="space-y-1.5">
-          {multiline
-            ? <textarea value={editValue} onChange={e => onEditChange(e.target.value, editValueEn)} rows={2} autoFocus
-                className="w-full bg-slate-700 border border-primary-500/50 text-white rounded-lg px-2 py-1.5 text-xs font-body resize-none outline-none" />
-            : <input type="text" value={editValue} onChange={e => onEditChange(e.target.value, editValueEn)} autoFocus
-                onKeyDown={e => { if (e.key === 'Enter') onSave(); if (e.key === 'Escape') onCancel() }}
-                className="w-full bg-slate-700 border border-primary-500/50 text-white rounded-lg px-2 py-1.5 text-xs font-body outline-none" />
-          }
-          {isNonEnglish && (
-            <input type="text" value={editValueEn} onChange={e => onEditChange(editValue, e.target.value)}
-              placeholder="English translation"
-              className="w-full bg-slate-700/50 border border-slate-600 text-slate-300 rounded-lg px-2 py-1.5 text-xs font-body outline-none" />
-          )}
-          <div className="flex gap-1.5">
-            <button onClick={onSave} className="flex-1 py-1 bg-primary-600 text-white text-[10px] rounded-lg font-semibold font-body">Save</button>
-            <button onClick={onCancel} className="flex-1 py-1 bg-slate-700 text-slate-300 text-[10px] rounded-lg font-body">Cancel</button>
+        {origValue && !isEditing && (
+          <div className="flex gap-2">
+            {isConfirming && (
+              <button onClick={() => onJumpBack(fieldKey)}
+                className="text-[10px] text-slate-500 hover:text-amber-400 font-body flex items-center gap-0.5">
+                <RotateCcw size={9} /> {t('reask', language)}
+              </button>
+            )}
+            <button onClick={() => onStartEdit(fieldKey)}
+              className="text-[10px] text-slate-500 hover:text-primary-400 font-body flex items-center gap-0.5">
+              <Edit3 size={9} /> {t('editThis', language)}
+            </button>
           </div>
-        </div>
-      ) : value ? (
-        <div>
-          <p className={`text-xs font-body leading-snug ${isActive ? 'text-primary-200' : 'text-slate-200'}`}>
-            {(value || '').slice(0, 80)}{(value || '').length > 80 ? '…' : ''}
-          </p>
-          {isNonEnglish && valueEn && valueEn !== value && (
-            <p className="text-[10px] text-slate-500 font-body mt-1 italic">{(valueEn || '').slice(0, 60)}{(valueEn || '').length > 60 ? '…' : ''}</p>
-          )}
-        </div>
-      ) : (
-        <p className="text-xs text-slate-600 italic font-body">
-          {isActive ? '⌨️ ...' : placeholder}
-        </p>
-      )}
-    </div>
-  )
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// FINAL FIELD (Review Panel with full edit)
-// ══════════════════════════════════════════════════════════════════════════════
-
-interface FinalFieldProps {
-  label: string; icon: string
-  origValue: string | null; enValue: string | null
-  language: string; isNonEnglish: boolean
-  isEditing: boolean; editValueOrig: string; editValueEn: string
-  onEdit: () => void
-  onEditChange: (orig: string, en: string) => void
-  onSave: () => void; onCancel: () => void
-  multiline?: boolean
-}
-
-function FinalField({ label, icon, origValue, enValue, language, isNonEnglish, isEditing, editValueOrig, editValueEn, onEdit, onEditChange, onSave, onCancel, multiline }: FinalFieldProps) {
-  return (
-    <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-3">
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-[10px] text-slate-500 uppercase tracking-wider font-body">{icon} {label}</p>
-        {!isEditing && (origValue || enValue) && (
-          <button onClick={onEdit}
-            className="text-[10px] text-slate-500 hover:text-primary-400 font-body flex items-center gap-0.5">
-            <Edit3 size={9} /> {t('editField', language)}
-          </button>
         )}
       </div>
 
@@ -1241,178 +1605,89 @@ function FinalField({ label, icon, origValue, enValue, language, isNonEnglish, i
           {/* Original language field */}
           {isNonEnglish && (
             <div>
-              <p className="text-[9px] text-primary-400 font-body mb-1 uppercase tracking-wider">
-                {t('originalLang', language)} ({SUPPORTED_LANGUAGES.find(l => l.code === language)?.nativeName})
-              </p>
-              {multiline
-                ? <textarea value={editValueOrig} onChange={e => onEditChange(e.target.value, editValueEn)} rows={3}
-                    className="w-full bg-slate-700 border border-primary-500/50 text-white rounded-lg px-3 py-2 text-sm font-body resize-none outline-none" />
-                : <input type="text" value={editValueOrig} onChange={e => onEditChange(e.target.value, editValueEn)} autoFocus
-                    className="w-full bg-slate-700 border border-primary-500/50 text-white rounded-lg px-3 py-2 text-sm font-body outline-none" />
-              }
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-[9px] text-primary-400 font-body uppercase tracking-wider">{langName}</p>
+                <button onClick={onTranslateEn} disabled={translating}
+                  className="text-[9px] text-slate-500 hover:text-green-400 font-body flex items-center gap-0.5">
+                  {translating ? <Loader2 size={8} className="animate-spin" /> : <Languages size={8} />}
+                  ← from English
+                </button>
+              </div>
+              {multiline ? (
+                <textarea value={editOrigVal} onChange={e => onEditOrigChange(e.target.value)} rows={3} autoFocus
+                  className="w-full bg-slate-700 border border-primary-500/50 text-white rounded-lg px-2.5 py-2 text-xs font-body resize-none outline-none" />
+              ) : (
+                <input type="text" value={editOrigVal} onChange={e => onEditOrigChange(e.target.value)} autoFocus
+                  onKeyDown={e => { if (e.key === 'Enter') onSaveEdit(); if (e.key === 'Escape') onCancelEdit() }}
+                  className="w-full bg-slate-700 border border-primary-500/50 text-white rounded-lg px-2.5 py-2 text-xs font-body outline-none" />
+              )}
             </div>
           )}
           {/* English field */}
           <div>
-            <p className="text-[9px] text-green-400 font-body mb-1 uppercase tracking-wider">{t('englishTranslation', language)}</p>
-            {multiline
-              ? <textarea value={editValueEn} onChange={e => onEditChange(editValueOrig, e.target.value)} rows={3}
-                  className="w-full bg-slate-700/50 border border-green-600/40 text-green-200 rounded-lg px-3 py-2 text-sm font-body resize-none outline-none" />
-              : <input type="text" value={isNonEnglish ? editValueEn : editValueOrig}
-                  onChange={e => isNonEnglish ? onEditChange(editValueOrig, e.target.value) : onEditChange(e.target.value, e.target.value)}
-                  className="w-full bg-slate-700/50 border border-green-600/40 text-green-200 rounded-lg px-3 py-2 text-sm font-body outline-none" />
-            }
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-[9px] text-green-400 font-body uppercase tracking-wider">English</p>
+              {isNonEnglish && (
+                <button onClick={onTranslateOrig} disabled={translating}
+                  className="text-[9px] text-slate-500 hover:text-green-400 font-body flex items-center gap-0.5">
+                  {translating ? <Loader2 size={8} className="animate-spin" /> : <Languages size={8} />}
+                  Translate →
+                </button>
+              )}
+            </div>
+            {multiline ? (
+              <textarea
+                value={isNonEnglish ? editEnVal : editOrigVal}
+                onChange={e => isNonEnglish ? onEditEnChange(e.target.value) : onEditOrigChange(e.target.value)}
+                rows={3}
+                autoFocus={!isNonEnglish}
+                className="w-full bg-slate-700/60 border border-green-600/40 text-green-200 rounded-lg px-2.5 py-2 text-xs font-body resize-none outline-none"
+              />
+            ) : (
+              <input
+                type="text"
+                value={isNonEnglish ? editEnVal : editOrigVal}
+                onChange={e => isNonEnglish ? onEditEnChange(e.target.value) : onEditOrigChange(e.target.value)}
+                autoFocus={!isNonEnglish}
+                onKeyDown={e => { if (e.key === 'Enter') onSaveEdit(); if (e.key === 'Escape') onCancelEdit() }}
+                className="w-full bg-slate-700/60 border border-green-600/40 text-green-200 rounded-lg px-2.5 py-2 text-xs font-body outline-none"
+              />
+            )}
           </div>
-          <div className="flex gap-2">
-            <button onClick={onSave} className="flex-1 py-2 bg-primary-600 hover:bg-primary-500 text-white rounded-xl font-semibold font-body text-sm transition-colors">
-              <Check size={14} className="inline mr-1" /> {t('save', language)}
+          <div className="flex gap-1.5">
+            <button onClick={onSaveEdit}
+              className="flex-1 py-1.5 bg-primary-600 hover:bg-primary-500 text-white rounded-lg font-body text-xs font-semibold transition-colors flex items-center justify-center gap-1">
+              <Check size={11} /> Save
             </button>
-            <button onClick={onCancel} className="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl font-body text-sm transition-colors">
-              {t('cancel', language)}
+            <button onClick={onCancelEdit}
+              className="flex-1 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-body text-xs transition-colors">
+              Cancel
             </button>
           </div>
+        </div>
+      ) : origValue ? (
+        <div className="space-y-1.5">
+          {isNonEnglish && (
+            <p className="text-xs text-slate-200 font-body leading-snug">
+              {(origValue || '').slice(0, 120)}{(origValue || '').length > 120 ? '…' : ''}
+            </p>
+          )}
+          {isNonEnglish && enValue && enValue !== origValue && (
+            <p className="text-[10px] text-slate-500 font-body italic">
+              {(enValue || '').slice(0, 80)}{(enValue || '').length > 80 ? '…' : ''}
+            </p>
+          )}
+          {!isNonEnglish && (
+            <p className="text-xs text-slate-200 font-body leading-snug">
+              {(origValue || '').slice(0, 120)}{(origValue || '').length > 120 ? '…' : ''}
+            </p>
+          )}
         </div>
       ) : (
-        <div className="space-y-2">
-          {isNonEnglish && origValue && (
-            <div>
-              <p className="text-[9px] text-primary-400 font-body uppercase tracking-wider mb-0.5">
-                {SUPPORTED_LANGUAGES.find(l => l.code === language)?.nativeName}
-              </p>
-              <p className="text-sm text-white font-body leading-snug">{origValue}</p>
-            </div>
-          )}
-          {(isNonEnglish ? enValue : origValue) && (
-            <div className={isNonEnglish ? 'pt-1.5 border-t border-slate-700' : ''}>
-              {isNonEnglish && <p className="text-[9px] text-green-400 font-body uppercase tracking-wider mb-0.5">English</p>}
-              <p className={`text-sm font-body leading-snug ${isNonEnglish ? 'text-green-200' : 'text-white'}`}>
-                {isNonEnglish ? (enValue || '—') : (origValue || '—')}
-              </p>
-            </div>
-          )}
-          {!origValue && !enValue && <p className="text-sm text-slate-500 italic font-body">—</p>}
-        </div>
+        <p className="text-xs text-slate-600 italic font-body">
+          {isActive ? '⌨️ ...' : `${label}...`}
+        </p>
       )}
-    </div>
-  )
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// LOCATION PICKER MINI (Dark theme, embedded)
-// ══════════════════════════════════════════════════════════════════════════════
-
-interface LPMiniProps {
-  lat: number; lng: number; address: string; language: string
-  onLocationSelect: (lat: number, lng: number, addr: string) => void
-}
-
-function LocationPickerMini({ lat, lng, address, language, onLocationSelect }: LPMiniProps) {
-  const mapRef = useRef<any>(null)
-  const markerRef = useRef<any>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [gpsLoading, setGpsLoading] = useState(false)
-  const [query, setQuery] = useState('')
-  const [searching, setSearching] = useState(false)
-
-  useEffect(() => {
-    if (!containerRef.current || mapRef.current) return
-    import('leaflet').then(L => {
-      const Lx = L.default || L
-      delete (Lx.Icon.Default.prototype as any)._getIconUrl
-      Lx.Icon.Default.mergeOptions({
-        iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
-        iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
-        shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
-      })
-
-      const ICON = Lx.divIcon({
-        className: '',
-        html: `<div style="width:26px;height:34px;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.4))"><svg viewBox="0 0 26 34" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M13 0C5.82 0 0 5.82 0 13c0 8.67 11.375 20.667 12.3 21.667a1 1 0 001.4 0C14.625 33.667 26 21.67 26 13 26 5.82 20.18 0 13 0z" fill="#3b82f6"/><circle cx="13" cy="12" r="5" fill="white" opacity="0.9"/><circle cx="13" cy="12" r="3" fill="#3b82f6"/></svg></div>`,
-        iconSize: [26, 34], iconAnchor: [13, 34],
-      })
-
-      if (!containerRef.current) return
-      const map = Lx.map(containerRef.current, { center: [lat, lng], zoom: 15, scrollWheelZoom: false, zoomControl: true })
-      Lx.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { attribution: '© CARTO', subdomains: 'abcd', maxZoom: 19 }).addTo(map)
-      const marker = Lx.marker([lat, lng], { draggable: true, icon: ICON }).addTo(map)
-      marker.on('dragend', async () => {
-        const { lat: la, lng: lo } = marker.getLatLng()
-        const addr = await reverseGeocode(la, lo)
-        onLocationSelect(la, lo, addr)
-      })
-      map.on('click', async (e: any) => {
-        const la = e.latlng.lat, lo = e.latlng.lng
-        marker.setLatLng([la, lo])
-        map.setView([la, lo], 16, { animate: true })
-        const addr = await reverseGeocode(la, lo)
-        onLocationSelect(la, lo, addr)
-      })
-      mapRef.current = map
-      markerRef.current = marker
-      setTimeout(() => map.invalidateSize(), 150)
-    })
-    return () => { mapRef.current?.remove(); mapRef.current = null; markerRef.current = null }
-  }, [])
-
-  const reverseGeocode = async (la: number, lo: number): Promise<string> => {
-    try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${la}&lon=${lo}&format=json&zoom=17`, { headers: { 'Accept-Language': 'en' } })
-      const data = await res.json()
-      const a = data.address || {}
-      return [a.road || a.pedestrian, a.neighbourhood || a.suburb, a.city || a.town].filter(Boolean).join(', ')
-        || data.display_name?.split(',').slice(0, 3).join(', ') || `${la.toFixed(5)}, ${lo.toFixed(5)}`
-    } catch { return `${la.toFixed(5)}, ${lo.toFixed(5)}` }
-  }
-
-  const useGPS = () => {
-    if (!navigator.geolocation) return
-    setGpsLoading(true)
-    navigator.geolocation.getCurrentPosition(async ({ coords: { latitude: la, longitude: lo } }) => {
-      if (mapRef.current && markerRef.current) { markerRef.current.setLatLng([la, lo]); mapRef.current.setView([la, lo], 17, { animate: true }) }
-      const addr = await reverseGeocode(la, lo)
-      onLocationSelect(la, lo, addr)
-      setGpsLoading(false)
-    }, () => { setGpsLoading(false) }, { timeout: 10000, enableHighAccuracy: true })
-  }
-
-  const searchAddr = async () => {
-    if (!query.trim()) return
-    setSearching(true)
-    try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query + ' Delhi India')}&format=json&limit=1`, { headers: { 'Accept-Language': 'en' } })
-      const results = await res.json()
-      if (results[0]) {
-        const la = parseFloat(results[0].lat), lo = parseFloat(results[0].lon)
-        if (mapRef.current && markerRef.current) { markerRef.current.setLatLng([la, lo]); mapRef.current.setView([la, lo], 16, { animate: true }) }
-        const addr = results[0].display_name.split(',').slice(0, 3).join(', ')
-        onLocationSelect(la, lo, addr)
-        setQuery('')
-      }
-    } finally { setSearching(false) }
-  }
-
-  return (
-    <div className="px-3 pb-1 space-y-2">
-      <div className="flex gap-2">
-        <input type="text" value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && searchAddr()}
-          placeholder="Search colony, landmark..."
-          className="flex-1 bg-slate-800 border border-slate-700 text-white rounded-xl px-3 py-2 text-xs font-body outline-none focus:border-primary-500 placeholder:text-slate-600" />
-        <button onClick={searchAddr} disabled={searching}
-          className="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl text-xs font-body">
-          {searching ? <Loader2 size={12} className="animate-spin" /> : '🔍'}
-        </button>
-        <button onClick={useGPS} disabled={gpsLoading}
-          className="px-3 py-2 bg-primary-600/20 border border-primary-500/40 hover:bg-primary-600/30 text-primary-400 rounded-xl text-xs font-body flex items-center gap-1">
-          {gpsLoading ? <Loader2 size={12} className="animate-spin" /> : <Navigation size={12} />}
-          <span className="hidden sm:inline">GPS</span>
-        </button>
-      </div>
-      <div className="relative rounded-xl overflow-hidden border border-slate-700">
-        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-[1000] pointer-events-none bg-slate-900/90 text-slate-300 text-[9px] font-body px-2 py-1 rounded-full whitespace-nowrap">
-          📍 Click map or drag pin
-        </div>
-        <div ref={containerRef} style={{ height: 190, width: '100%' }} />
-      </div>
     </div>
   )
 }
