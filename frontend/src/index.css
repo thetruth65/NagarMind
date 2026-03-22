@@ -240,3 +240,78 @@
 .leaflet-tooltip-custom::before {
   display: none !important; /* Removes the little triangle arrow */
 }
+/*
+ * NagarMind — Z-Index & Stacking Context Fixes (append to index.css)
+ *
+ * NotificationBell, SearchableSelect, LanguageSelector, LocationPicker
+ * all use ReactDOM.createPortal — their dropdowns mount in document.body
+ * and bypass every stacking/overflow context. CSS below is a safety net.
+ *
+ * Z-Index Hierarchy:
+ *   Sticky headers:     z-20
+ *   Admin sidebar:      z-30
+ *   Leaflet map:        z-0  (overridden below)
+ *   Portal backdrops:   9997
+ *   Portal dropdowns:   9998
+ *   Portal notif panel: 9999
+ *   Toast:              10000 (react-hot-toast default)
+ */
+
+/* ── Prevent header overflow:hidden from clipping fixed children ─────────── */
+.app-header {
+  overflow: visible !important;
+}
+
+/* ── Scroll container must not use overflow:hidden ───────────────────────── */
+/* overflow:hidden creates a containing block for `position:fixed` in Safari */
+.app-shell-content {
+  overflow-x: clip;
+  overflow-y: auto;
+}
+
+/* ── Framer Motion isolation fix ─────────────────────────────────────────── */
+/* Animated wrappers with transform create stacking contexts that trap
+   fixed children. These selectors reset isolation to avoid that. */
+header[class*="sticky"],
+.sticky-header,
+nav[class*="sticky"] {
+  isolation: auto !important;
+}
+
+/* ── Admin sidebar ───────────────────────────────────────────────────────── */
+.admin-sidebar {
+  z-index: 30;
+  overflow: visible;
+}
+
+/* ── Leaflet — must stay below portal dropdowns ──────────────────────────── */
+.leaflet-container {
+  z-index: 0 !important;
+  font-family: 'DM Sans', sans-serif !important;
+  border-radius: 0.75rem;
+}
+.leaflet-pane {
+  z-index: 0 !important;
+}
+.leaflet-top,
+.leaflet-bottom {
+  z-index: 5 !important;
+}
+.leaflet-control {
+  z-index: 5 !important;
+}
+.leaflet-popup-pane,
+.leaflet-popup {
+  z-index: 10 !important;
+}
+
+/* ── Custom leaflet tooltip (used in map cluster views) ──────────────────── */
+.leaflet-tooltip-custom {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+.leaflet-tooltip-custom::before {
+  display: none !important;
+}

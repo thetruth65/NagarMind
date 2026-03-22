@@ -12,7 +12,10 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import List
 from app.services.sarvam_service import translate_text, translate_single
+from app.services.groq_service import translate_with_groq
+import logging
 
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["translate"])
 
 
@@ -81,7 +84,7 @@ async def translate_one(body: TranslateSingleRequest):
     
     # If Sarvam returned unchanged text (likely failed), try Gemini
     if result == body.text and source_short != target_short:
-        from app.services.gemini_service import translate_with_gemini
-        result = await translate_with_gemini(body.text, source_short, target_short)
+        result = await translate_with_groq(body.text, source_short, target_short)
+        logger.info(f"Translated text with Groq: {result}")
     
     return {"translated": result, "target_language": body.target_language}
